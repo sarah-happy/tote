@@ -14,7 +14,7 @@ from os import lstat, readlink
 from os.path import islink, isfile, isdir, exists
 from pathlib import Path
 
-from .text import dump, dumps
+from .text import dump, dumps, fromjsons, tojsons
 
 def load_tree(store, hexdigest):
     blob = store.load_blob(hexdigest)
@@ -137,3 +137,45 @@ def load_chunk(part, store):
     b = decompress(c)
     chunk = fromblob(b)
     return chunk
+
+class Fold:
+    def __init__(self, store, func, fold_size=2**22):
+        self.fold_size = fold_size
+        self.store = store
+        self.func = func
+        
+        self.page = list()
+        self.page_size = 0
+        self.names = list()
+        
+    def append(self, item):
+        part = tojsons(item).encode()
+        
+        if len(part) + self.page_size > self.fold_size:
+            self.flush()
+        
+        self.page.append(part)
+        self.page_size += len(part)
+        self.names.append(item['name'])
+        
+    def flush(self):
+        if not self.page:
+            return
+        
+        o = OrderedDict()
+        o['type'] = 'fold'
+        o['content'] = [ save_chunk(b''.join(self.page), self.store) ]
+        o['count'] = len(self.page)
+        o['name_min'] = min(self.names)
+        o['name_max'] = max(self.names)
+        self.func(o)
+
+        self.page = list()
+        self.page_size = 0
+        self.names = list()
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        self.flush()

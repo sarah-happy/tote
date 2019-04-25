@@ -101,6 +101,22 @@ def cmd_list(args):
         for item in fromjsons(i):
             print(item['type'], item.get('size', None), item['name'])
             
+def fold_pipe(args):
+    from tote import workdir, save_chunk, fromjsons, tojsons, Fold
+
+    arc = args.tote
+    
+    w = workdir.attach()
+    store = w.get_store()
+
+    def output(item):
+        sys.stdout.write(tojsons(item))
+
+    with open(arc, 'rt') as f:
+        with Fold(store, func=output) as fold:
+            for item in fromjsons(f):
+                fold.append(item)
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
     s = p.add_subparsers()
@@ -141,6 +157,10 @@ def main(argv=None):
     c = s.add_parser('list', help='list files in list')
     c.add_argument('tote')
     c.set_defaults(func=cmd_list)
+    
+    c = s.add_parser('fold-pipe', help='fold list to stdout')
+    c.add_argument('tote')
+    c.set_defaults(func=fold_pipe)
 
     args = p.parse_args(argv)
     
