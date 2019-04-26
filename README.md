@@ -31,7 +31,7 @@ A step by step series of examples that tell you how to get a development env run
 Clone the git repository.
 
 ```
-git clone https://bitbucket.org/sarah_happy/tote
+git clone https://github.com/sarah-happy/tote.git
 ```
 
 Adapt tote/tote.sh into a launch script and put it in your path
@@ -92,8 +92,6 @@ Coming soon.
 ## License
 
 I haven't decided on which license to use yet, but it will be something permissive.
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
 
 ## Acknowledgments
 
