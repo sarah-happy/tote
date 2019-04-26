@@ -71,14 +71,11 @@ def fromstream(text):
     """
     text -> texts
     """
-    try:
-        lines = text.splitlines()
-    except AttributeError:
-        lines = text
-
+    lines = textlines(text)
+    
     for k, g in groupby(lines, lambda l: l.startswith('---')):
         if not k:
-            yield ''.join(g)
+            yield '\n'.join(g)
 
 def tostream(text):
     return ''.join(['---\n', text, '\n'])

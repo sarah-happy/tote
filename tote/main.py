@@ -92,14 +92,15 @@ def append(args):
 
 def cmd_list(args):
     import sys
-    from tote import fromjsons
+    from tote import fromjsons, unfold
     from tote import workdir
     
     arc = args.tote
-
+    store = workdir.attach().get_store()
     with open(arc, 'rt') as i:
-        for item in fromjsons(i):
-            print(item['type'], item.get('size', None), item['name'])
+        items = fromjsons(i)
+        for item in unfold(items, store):
+            print(item.get('type'), item.get('size', None), item.get('name', None))
             
 def cmd_fold_pipe(args):
     from tote import workdir, save_chunk, fromjsons, tojsons, Fold

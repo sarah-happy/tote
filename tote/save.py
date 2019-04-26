@@ -179,3 +179,11 @@ class Fold:
     
     def __exit__(self, type, value, traceback):
         self.flush()
+
+def unfold(items, store):
+    for item in items:
+        if item['type'] == 'fold':
+            for chunk in load_content(item, store):
+                yield from unfold(fromjsons(chunk), store)
+        else:
+            yield item
