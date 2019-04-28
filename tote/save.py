@@ -12,7 +12,7 @@ from hashlib import sha256
 from io import StringIO
 from os import lstat, readlink
 from os.path import islink, isfile, isdir, exists
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .text import dump, dumps, fromjsons, tojsons
 
@@ -138,48 +138,6 @@ def load_chunk(part, store):
     chunk = fromblob(b)
     return chunk
 
-class Fold:
-    def __init__(self, store, func, fold_size=2**22):
-        self.fold_size = fold_size
-        self.store = store
-        self.func = func
-        
-        self.page = list()
-        self.page_size = 0
-        self.names = list()
-        
-    def append(self, item):
-        part = tojsons(item).encode()
-        
-        if len(part) + self.page_size > self.fold_size:
-            self.flush()
-        
-        self.page.append(part)
-        self.page_size += len(part)
-        self.names.append(item['name'])
-        
-    def flush(self):
-        if not self.page:
-            return
-        
-        o = OrderedDict()
-        o['type'] = 'fold'
-        o['content'] = [ save_chunk(b''.join(self.page), self.store) ]
-        o['count'] = len(self.page)
-        o['name_min'] = min(self.names)
-        o['name_max'] = max(self.names)
-        self.func(o)
-
-        self.page = list()
-        self.page_size = 0
-        self.names = list()
-
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, type, value, traceback):
-        self.flush()
-
 def unfold(items, store):
     for item in items:
         if item['type'] == 'fold':
@@ -187,3 +145,56 @@ def unfold(items, store):
                 yield from unfold(fromjsons(chunk), store)
         else:
             yield item
+    return
+
+def itemname(item):
+    for field in 'name', 'name_min':
+        if field in item:
+            return item.get(field)
+
+    raise TypeError('item has no name')
+
+def itemkey(item):
+    return pathkey(itemname(item))
+
+def tochunk(items):
+    return ''.join(map(tojsons, items)).encode()
+
+def pathkey(name):
+    '''split and clean up a path in an archive, for sorting'''
+    p = PurePosixPath(name)
+
+    # only relative
+    if p.is_absolute():
+        p = p.relative_to(p.root)
+    
+    # strip out '..' if present
+    p = tuple(i for i in p.parts if i != '..')
+
+    return p
+
+def save_fold(items, store):
+    items = sorted(items, key=itemkey)
+    o = OrderedDict()
+    o['type'] = 'fold'
+    o['content'] = [ save_chunk(tochunk(items), store) ]
+    o['count'] = len(items)
+    o['name_min'] = itemname(items[0])
+    o['name_max'] = itemname(items[-1])
+    return o
+
+def fold(items, store, fold_size=2**22):
+    page = list()
+    page_size = 0
+    for item in items:
+        part = tojsons(item).encode()
+        if len(part) + page_size > fold_size:
+            yield save_fold(page, store)
+            page.clear()
+            page_size = 0
+        page.append(item)
+        page_size += len(part)
+    if page:
+        yield save_fold(page, store)
+    return
+

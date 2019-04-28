@@ -1,29 +1,26 @@
 import sys
 import argparse
+import tote
 
 from .store import Store, load_blob
 
 def blob_cat(args):
-    from tote import workdir
-    w = workdir.attach()
-    store = w.get_store()
+    store = tote.get_store()
     b = store.load_blob(args.data)
     sys.stdout.buffer.write(b)
 
 def show_workdir(args):
-    import tote.workdir
-    wd = tote.workdir.attach(args.path)
+    import tote
+    wd = tote.get_workdir(args.path)
     print('path =', wd.path)
     print('store.path =', wd.config.get('store', 'path', fallback=None))
     print('get_store() =', wd.get_store())
 
 def put(args):
-    from tote import workdir, treescan, save_file, save_stream, tojsons
-    import sys
+    from tote import treescan, save_file, save_stream, tojsons
     from itertools import chain
     
-    wd = workdir.attach()
-    store = wd.get_store()
+    store = tote.get_store()
     
     files = args.path
     if files:
@@ -37,12 +34,11 @@ def put(args):
         print(tojsons(f))
         
 def cat(args):
-    from tote import workdir
+    import tote
     from tote.text import fromjsons
     from tote.save import load_content
     
-    wd = workdir.attach()
-    store = wd.get_store()
+    store = tote.get_store()
     
     out = sys.stdout
     
@@ -69,13 +65,10 @@ def echo(args):
     print(args)
     
 def append(args):
-    import sys
     from tote import treescan, save_file, tojsons
     from itertools import chain
     
-    from tote import workdir
-    w = workdir.attach()
-    store = w.get_store()
+    store = tote.get_store()
 
     arc = args.tote
     files = args.file
@@ -96,28 +89,38 @@ def cmd_list(args):
     from tote import workdir
     
     arc = args.tote
-    store = workdir.attach().get_store()
+    store = tote.get_store()
     with open(arc, 'rt') as i:
         items = fromjsons(i)
         for item in unfold(items, store):
             print(item.get('type'), item.get('size', None), item.get('name', None))
             
 def cmd_fold_pipe(args):
-    from tote import workdir, save_chunk, fromjsons, tojsons, Fold
+    from tote import save_chunk, fromjsons, tojsons, fold
 
     arc = args.tote
     
-    w = workdir.attach()
-    store = w.get_store()
+    store = tote.get_store()
 
     def output(item):
         sys.stdout.write(tojsons(item))
 
     with open(arc, 'rt') as f:
         with Fold(store, func=output) as fold:
-            for item in fromjsons(f):
+            for item in fold(fromjsons(f)):
                 fold.append(item)
 
+def cmd_refold_pipe(args):
+    from tote import fromjsons, tojsons, itemkey
+    from tote import fold, unfold
+
+    store = tote.get_store()
+
+    with open(args.tote) as f:
+        ls = sorted(unfold(fromjsons(f), store), key=itemkey)
+    for f in fold(ls, store):
+        print(tojsons(f))
+            
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
     s = p.add_subparsers()
@@ -162,6 +165,10 @@ def main(argv=None):
     c = s.add_parser('fold-pipe', help='fold list to stdout')
     c.add_argument('tote')
     c.set_defaults(func=cmd_fold_pipe)
+
+    c = s.add_parser('refold-pipe', help='refold list to stdout')
+    c.add_argument('tote')
+    c.set_defaults(func=cmd_refold_pipe)
 
     args = p.parse_args(argv)
     
