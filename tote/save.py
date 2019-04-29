@@ -139,10 +139,13 @@ def load_chunk(part, store):
     return chunk
 
 def unfold(items, store):
-    for item in items:
+    work = deque(sorted(items, key=itemkey))
+    while work:
+        item = work.popleft()
         if item['type'] == 'fold':
             for chunk in load_content(item, store):
-                yield from unfold(fromjsons(chunk), store)
+                work.extend(fromjsons(chunk))
+            work = deque(sorted(work, key=itemkey))
         else:
             yield item
     return

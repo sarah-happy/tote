@@ -4,19 +4,19 @@ import tote
 
 from .store import Store, load_blob
 
-def blob_cat(args):
+def cmd_blob_cat(args):
     store = tote.get_store()
     b = store.load_blob(args.data)
     sys.stdout.buffer.write(b)
 
-def show_workdir(args):
+def cmd_show_workdir(args):
     import tote
     wd = tote.get_workdir(args.path)
     print('path =', wd.path)
     print('store.path =', wd.config.get('store', 'path', fallback=None))
     print('get_store() =', wd.get_store())
 
-def put(args):
+def cmd_put(args):
     from tote import treescan, save_file, save_stream, tojsons
     from itertools import chain
     
@@ -33,7 +33,7 @@ def put(args):
         f = save_stream(sys.stdin.buffer, store)
         print(tojsons(f))
         
-def cat(args):
+def cmd_cat(args):
     import tote
     from tote.text import fromjsons
     from tote.save import load_content
@@ -53,7 +53,7 @@ def cat(args):
             for chunk in load_content(item, store):
                 out.write(chunk)
 
-def scan(args):
+def cmd_scan(args):
     from tote import treescan
     from itertools import chain
     files = args.path
@@ -61,10 +61,10 @@ def scan(args):
     for file in files:
         print(file)
                 
-def echo(args):
+def cmd_echo(args):
     print(args)
     
-def append(args):
+def cmd_append(args):
     from tote import treescan, save_file, tojsons
     from itertools import chain
     
@@ -111,15 +111,16 @@ def cmd_fold_pipe(args):
                 fold.append(item)
 
 def cmd_refold_pipe(args):
-    from tote import fromjsons, tojsons, itemkey
+    from tote import fromjsons, tojsons
     from tote import fold, unfold
 
     store = tote.get_store()
 
     with open(args.tote) as f:
-        ls = sorted(unfold(fromjsons(f), store), key=itemkey)
-    for f in fold(ls, store):
-        print(tojsons(f))
+        ls = unfold(fromjsons(f), store)
+        fs = fold(ls, store)
+        for f in fs:
+            print(tojsons(f))
             
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
@@ -127,36 +128,36 @@ def main(argv=None):
 
     c = s.add_parser('blob-cat', help='copy a blob to stdout')
     c.add_argument('data', help='key of the blob')
-    c.set_defaults(func=blob_cat)
+    c.set_defaults(func=cmd_blob_cat)
 
     c = s.add_parser('show-workdir', help='print workdir')
     c.add_argument('path', nargs='?', default=None)
-    c.set_defaults(func=show_workdir)
+    c.set_defaults(func=cmd_show_workdir)
     
     c = s.add_parser('put', help='save stdin or files and print stream')
     c.add_argument('path', nargs='*')
     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
-    c.set_defaults(func=put)
+    c.set_defaults(func=cmd_put)
     
     c = s.add_parser('scan', help='show all the included files')
     c.add_argument('path', nargs='+')
-    c.set_defaults(func=scan)
+    c.set_defaults(func=cmd_scan)
     
     c = s.add_parser('cat', help='copy content of files in stream to stdout')
     c.add_argument('tote', nargs='*')
-    c.set_defaults(func=cat)
+    c.set_defaults(func=cmd_cat)
     
     c = s.add_parser('echo', help='print args object')
     c.add_argument('args', nargs='*')
     c.add_argument('--arg')
     c.add_argument('--recursive', action='store_true')
-    c.set_defaults(func=echo)
+    c.set_defaults(func=cmd_echo)
     
     c = s.add_parser('append', help='append files to list')
     c.add_argument('tote')
     c.add_argument('file', nargs='+')
     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
-    c.set_defaults(func=append)
+    c.set_defaults(func=cmd_append)
     
     c = s.add_parser('list', help='list files in list')
     c.add_argument('tote')
@@ -171,7 +172,6 @@ def main(argv=None):
     c.set_defaults(func=cmd_refold_pipe)
 
     args = p.parse_args(argv)
-    
     if 'func' not in args:
         p.print_usage()
         return
