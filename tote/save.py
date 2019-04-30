@@ -6,7 +6,7 @@ import zlib
 
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from functools import partial
 from hashlib import sha256
 from io import StringIO

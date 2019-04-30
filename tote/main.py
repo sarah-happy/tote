@@ -2,8 +2,6 @@ import sys
 import argparse
 import tote
 
-from .store import Store, load_blob
-
 def cmd_blob_cat(args):
     store = tote.get_store()
     b = store.load_blob(args.data)
@@ -102,26 +100,39 @@ def cmd_fold_pipe(args):
     
     store = tote.get_store()
 
-    def output(item):
-        sys.stdout.write(tojsons(item))
-
     with open(arc, 'rt') as f:
-        with Fold(store, func=output) as fold:
-            for item in fold(fromjsons(f)):
-                fold.append(item)
+        for item in fold(fromjsons(f), store):
+            sys.stdout.write(tojsons(item))
 
 def cmd_refold_pipe(args):
     from tote import fromjsons, tojsons
-    from tote import fold, unfold
+    from tote import fold, unfold, readtote, ToteWriter
 
     store = tote.get_store()
 
-    with open(args.tote) as f:
-        ls = unfold(fromjsons(f), store)
-        fs = fold(ls, store)
-        for f in fs:
-            print(tojsons(f))
-            
+    with readtote(args.tote) as i, ToteWriter() as o:
+        l = unfold(i, store)
+        f = fold(l, store)
+        o.writeall(f)
+
+def cmd_refold(args):
+    store = tote.get_store()
+
+    from tote import fold, unfold, readtote, writetote, appendtote
+    import os
+
+    name=args.tote
+    with readtote(name) as i, writetote(name + '.part') as o:
+        l = unfold(i, store)
+        f = fold(l, store)
+        o.writeall(f)
+
+    from tote import save_file
+    with appendtote(name + '.history') as o:
+        o.write(save_file(name, store))
+
+    os.rename(name + '.part', name)
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
     s = p.add_subparsers()
@@ -170,6 +181,10 @@ def main(argv=None):
     c = s.add_parser('refold-pipe', help='refold list to stdout')
     c.add_argument('tote')
     c.set_defaults(func=cmd_refold_pipe)
+    
+    c = s.add_parser('refold', help='refold list')
+    c.add_argument('tote')
+    c.set_defaults(func=cmd_refold)
 
     args = p.parse_args(argv)
     if 'func' not in args:
