@@ -17,7 +17,6 @@ def get_store(path=None):
     wd = get_workdir(path)
     return wd.get_store()
 
-
 @contextmanager
 def readtote(name):
     with open(name) as f:

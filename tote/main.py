@@ -8,7 +8,6 @@ def cmd_blob_cat(args):
     sys.stdout.buffer.write(b)
 
 def cmd_show_workdir(args):
-    import tote
     wd = tote.get_workdir(args.path)
     print('path =', wd.path)
     print('store.path =', wd.config.get('store', 'path', fallback=None))
@@ -32,8 +31,7 @@ def cmd_put(args):
         print(tojsons(f))
         
 def cmd_cat(args):
-    import tote
-    from tote.text import fromjsons
+    from tote import readtote, fromjsons
     from tote.save import load_content
     
     store = tote.get_store()
@@ -42,8 +40,8 @@ def cmd_cat(args):
     
     if args.tote:
         for file in args.tote:
-            with open(file) as f:
-                for item in fromjsons(f):
+            with readtote(file) as items:
+                for item in items:
                     for chunk in load_content(item, store):
                         out.write(chunk)
     else:
@@ -82,33 +80,29 @@ def cmd_append(args):
             print('append', file, file=u)
 
 def cmd_list(args):
-    import sys
-    from tote import fromjsons, unfold
-    from tote import workdir
+    from tote import unfold, readtote
     
     arc = args.tote
+
     store = tote.get_store()
-    with open(arc, 'rt') as i:
-        items = fromjsons(i)
-        for item in unfold(items, store):
+    with readtote(arc) as i:
+        for item in unfold(i, store):
             print(item.get('type'), item.get('size', None), item.get('name', None))
             
 def cmd_fold_pipe(args):
-    from tote import save_chunk, fromjsons, tojsons, fold
+    from tote import fold, readtote, ToteWriter
 
     arc = args.tote
-    
-    store = tote.get_store()
 
-    with open(arc, 'rt') as f:
-        for item in fold(fromjsons(f), store):
-            sys.stdout.write(tojsons(item))
+    store = tote.get_store()
+    with readtote(arc) as i, ToteWriter() as o:
+        f = fold(i, store)
+        o.writell(f)
 
 def cmd_refold_pipe(args):
-    from tote import fromjsons, tojsons
-    from tote import fold, unfold, readtote, ToteWriter
-
     store = tote.get_store()
+
+    from tote import fold, unfold, readtote, ToteWriter
 
     with readtote(args.tote) as i, ToteWriter() as o:
         l = unfold(i, store)

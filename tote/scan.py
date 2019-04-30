@@ -213,8 +213,7 @@ def ToteIgnore():
                 name = join(basename(child), name)
             else:
                 return ignore
-        else:
-            return None
+        return None
 
     return check
 
