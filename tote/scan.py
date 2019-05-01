@@ -4,15 +4,15 @@ import os.path
 import re
 import time
 
-from collections import OrderedDict
+from collections import deque, OrderedDict
 from functools import lru_cache
-from os import listdir
-from os.path import join, dirname, basename, isdir, islink
+from os import listdir, lstat
+from os.path import basename, dirname, isdir, islink, join, ismount
 from pathlib import Path
+from warnings import warn
 
 from .text import textline, textlines, escape, unescape
 from .text import dumps, dump, load_all, load_list
-
 
 def hash_file(path):
     h = hashlib.sha256()
@@ -196,44 +196,79 @@ def lazy_property(fn):
         return getattr(self, attr_name)
     return _lazy_property
 
-def ToteIgnore():
+def ToteIgnore(base_path=None):
+    
     @lru_cache()
     def get_rules(path):
         return load_rules(path)
 
-    def check(path):
-        child = path
-        parent = dirname(child)
-        name = basename(child)
-        while child != parent:
-            ignore = get_rules(parent)(name)
-            if ignore is None:
-                child = parent
-                parent = dirname(child)
-                name = join(basename(child), name)
-            else:
-                return ignore
-        return None
+    def in_parent(path, name):
+        if name is None:
+            return dirname(path), basename(path)
+        else:
+            return dirname(path), join(basename(path), name)
+    
+    def check(path, name=None):
+        if path == base_path:
+            # we are at the base, the search is done
+            return None
 
+        parent, name = in_parent(path, name)
+        if parent == path:
+            # we tried to go up from the root
+            return None
+
+        if (parent, name) == (base_path, '.tote'):
+            # ignore the base path .tote, but not the children
+            # so we can name them explicitly to store.
+            return True
+
+        # XXX name could be any type of path, but the rules are based on posix paths
+        ignore = get_rules(parent)(name)
+        if ignore is not None:
+            # we got a rule hit
+            return ignore
+
+        return check(parent, name)
+    
     return check
 
-from itertools import filterfalse
-from functools import partial
+def spathkey(name):
+    '''split and clean up a native path, for sorting'''
+    p = Path(name)
 
-def treescan(path, ignore=None):
+    # only relative
+    if p.is_absolute():
+        p = p.relative_to(p.root)
+    
+    # strip out '..' if present
+    p = tuple(i for i in p.parts if i != '..')
+
+    return p
+
+def treescan(path, ignore=None, one_filesystem=False):
+    '''
+    scan from path, filtering through ignore, recursing into dirs that are not links.
+    
+    if ignore is not provided, create a new ToteIgnore.
+    
+    yield each found path
+    '''
     if ignore is None:
         ignore = ToteIgnore()
-
-    # the filter goes on the children so explicitly named paths are included
-    # filtering here
-    # if ignore(path):
-    #     return
-    
-    yield path
-    
-    if isdir(path) and not islink(path):
-        children = sorted(listdir(path))
-        children = map(partial(join, path), children)
-        children = filterfalse(ignore, children)
-        for child in children:
-            yield from treescan(child, ignore)
+    work = deque([path])
+    while work:
+        name = work.popleft()
+        if ignore(name):
+            continue
+        yield name
+        if isdir(name) and not islink(name) and not(one_filesystem and ismount(name)):
+            try:
+                l = listdir(name)
+            except PermissionError as e:
+                warn(str(e))
+            else:
+                for c in l:
+                    p = join(name, c)
+                    work.append(p)
+                work = deque(sorted(work, key=spathkey))
