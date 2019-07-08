@@ -1,6 +1,6 @@
 import configparser
 import os
-from os.path import join, isdir, dirname, abspath
+from os.path import join, isdir, dirname, abspath, isfile
 from os.path import expanduser, expandvars
 
 import tote
