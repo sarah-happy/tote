@@ -16,52 +16,23 @@ from pathlib import Path, PurePosixPath
 
 from .text import dump, dumps, fromjsons, tojsons
 
+
 def load_tree(store, hexdigest):
     blob = store.load_blob(hexdigest)
     return load_all(blob)
 
+
 class TooBigError(Exception): pass
+
 
 def chunks(file, size=2**24):
     return iter(partial(file.read, size), b'')
+
 
 def ts(secs=None):
     t = time.gmtime(secs)
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', t)
 
-def save_file(name, store, *args, **kwargs):
-    out = OrderedDict()
-    out['name'] = name
-    
-    try:
-        st = lstat(name)
-        out['mtime'] = ts(st.st_mtime)
-    
-    except FileNotFoundError:
-        out['type'] = 'missing'
-        return out
-    
-    if islink(name):
-        out['type'] = 'link'
-        out['target'] = readlink(name)
-        return out
-    
-    if isdir(name):
-        out['type'] = 'dir'
-        return out
-    
-    if isfile(name):
-        out['type'] = 'file'
-        with open(name, 'rb') as file:
-            out.update(save_stream(file, store, *args, **kwargs))
-        return out
-    
-    if exists(name):
-        out.update(type='unknown')
-        return out
-    
-    out.update(type='missing')
-    return out
 
 def save_stream(file, store, *args, **kwargs):
     content = list()
@@ -74,13 +45,16 @@ def save_stream(file, store, *args, **kwargs):
         content.append(c)
     return { 'content': content, 'sha256': h.hexdigest(), 'size': size }
 
+
 def load_content(item, store):
     for part in item.get('content', ()):
         yield load_chunk(part, store)
 
+
 def hexify(data):
     h = binascii.hexlify(data)
     return str(h)
+
 
 def save_chunk(chunk, store, lock='aes256ctr'):
     c = compress(make_blob(chunk))
@@ -94,12 +68,15 @@ def save_chunk(chunk, store, lock='aes256ctr'):
         key=k.hexdigest(),
         data=d)
 
+
 def make_blob(data):
     return b'blob\n' + data
+
 
 def compress(data):
     z = b'zlib\n' + zlib.compress(data, 9)
     return z  if len(z) < len(data)  else data
+
 
 def encrypt(data, lock, key):
     if lock == 'aes256ctr':
@@ -109,17 +86,20 @@ def encrypt(data, lock, key):
         raise TypeError('unknown lock type', lock)
     return make_blob(alg.encrypt(data))
 
+
 def fromblob(data):
     """unwrap a blob, raise TypeError if it is not a blob."""
     if not data.startswith(b'blob\n'):
         raise TypeError('not a blob')
     return data[5:]
 
+
 def decompress(data):
     if not data.startswith(b'zlib\n'):
         return data
     return zlib.decompress(data[5:])
     
+
 def decrypt(data, lock, key):
     if lock == 'aes256ctr':
         ctr = Counter.new(nbits=128)
@@ -129,6 +109,7 @@ def decrypt(data, lock, key):
     l = fromblob(data)
     return alg.decrypt(l)
 
+
 def load_chunk(part, store):
     d = part['data']
     l = store.load(part['data'])
@@ -137,6 +118,7 @@ def load_chunk(part, store):
     b = decompress(c)
     chunk = fromblob(b)
     return chunk
+
 
 def unfold(items, store):
     work = deque(sorted(items, key=itemkey))
@@ -150,6 +132,7 @@ def unfold(items, store):
             yield item
     return
 
+
 def itemname(item):
     for field in 'name', 'name_min':
         if field in item:
@@ -157,14 +140,20 @@ def itemname(item):
 
     raise TypeError('item has no name')
 
+
 def itemkey(item):
     return pathkey(itemname(item))
+
 
 def tochunk(items):
     return ''.join(map(tojsons, items)).encode()
 
+
 def pathkey(name):
-    '''split and clean up a path in an archive, for sorting'''
+    '''
+    returns a tuple of relative path components of name
+    '''
+    
     p = PurePosixPath(name)
 
     # only relative
@@ -172,9 +161,8 @@ def pathkey(name):
         p = p.relative_to(p.root)
     
     # strip out '..' if present
-    p = tuple(i for i in p.parts if i != '..')
+    return tuple(i for i in p.parts if i != '..')
 
-    return p
 
 def save_fold(items, store):
     items = sorted(items, key=itemkey)
@@ -185,6 +173,7 @@ def save_fold(items, store):
     o['name_min'] = itemname(items[0])
     o['name_max'] = itemname(items[-1])
     return o
+
 
 def fold(items, store, fold_size=2**22):
     page = list()
@@ -200,4 +189,49 @@ def fold(items, store, fold_size=2**22):
     if page:
         yield save_fold(page, store)
     return
+
+
+def get_file_info(path):
+    out = OrderedDict()
+    out['name'] = path
+    
+    try:
+        st = lstat(path)
+        out['mtime'] = ts(st.st_mtime)
+    
+    except FileNotFoundError:
+        out['type'] = 'missing'
+        return out
+    
+    if islink(path):
+        out['type'] = 'link'
+        out['target'] = readlink(path)
+        return out
+    
+    if isdir(path):
+        out['type'] = 'dir'
+        return out
+    
+    if isfile(path):
+        out['type'] = 'file'
+        out['size'] = st.st_size
+        return out
+    
+    if exists(path):
+        out['type'] = 'unknown'
+        return out
+    
+    out['type'] = 'missing'
+    return out
+
+
+def save_file(name, store, *args, **kwargs):
+    out = get_file_info(name)
+
+    if isfile(name):
+        with open(name, 'rb') as file:
+            out.update(save_stream(file, store, *args, **kwargs))
+    
+    return out
+
 

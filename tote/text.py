@@ -45,6 +45,7 @@ def dump(item, stream, flush=False):
     if flush:
         stream.flush()
 
+# is this still used?
 def load_all(text):
     lines = ( line.split(": ", 1) for line in textlines(text) )
     chunk = OrderedDict()

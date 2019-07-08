@@ -36,7 +36,7 @@ def cmd_cat(args):
     
     store = tote.get_store()
     
-    out = sys.stdout
+    out = sys.stdout.buffer
     
     if args.tote:
         for file in args.tote:
@@ -97,7 +97,7 @@ def cmd_fold_pipe(args):
     store = tote.get_store()
     with readtote(arc) as i, ToteWriter() as o:
         f = fold(i, store)
-        o.writell(f)
+        o.writeall(f)
 
 def cmd_refold_pipe(args):
     store = tote.get_store()
@@ -126,6 +126,34 @@ def cmd_refold(args):
         o.write(save_file(name, store))
 
     os.rename(name + '.part', name)
+
+    
+def cmd_status(args):
+    from tote.workdir import checkin_status
+    wd = tote.get_workdir()
+    checkin_status(wd)
+
+    
+def cmd_checkin(args):
+    from tote.save import ts
+    from tote.workdir import checkin_save
+    from os.path import join
+    import os
+
+    wd = tote.get_workdir()
+    update = checkin_save(wd)
+    folds = tote.save.fold(update, wd.get_store())
+
+    path = join(wd.path, '.tote', 'checkin', 'default')
+    os.makedirs(path, exist_ok=True)
+
+    path = join(path, ts() + '.tote')
+    path_part = path + '.part'
+    with tote.writetote(path_part) as f:
+        # save_new_checkin looks for the most recent checkin here
+        f.writeall(folds)
+    os.rename(path_part, path)
+
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
@@ -179,6 +207,12 @@ def main(argv=None):
     c = s.add_parser('refold', help='refold list')
     c.add_argument('tote')
     c.set_defaults(func=cmd_refold)
+    
+    c = s.add_parser('status', help='show what changed since the last checkin')
+    c.set_defaults(func=cmd_status)
+
+    c = s.add_parser('checkin', help='checkin the current state')
+    c.set_defaults(func=cmd_checkin)
 
     args = p.parse_args(argv)
     if 'func' not in args:
