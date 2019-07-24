@@ -130,8 +130,11 @@ def checkin_save(wd):
         if a is None:
             print('new', b['name'])
             if isfile(join(wd.path, b['name'])):
-                with open(join(wd.path, b['name']), 'rb') as file:
-                    b.update(tote.save_stream(file, wd.get_store()))
+                try:
+                    with open(join(wd.path, b['name']), 'rb') as file:
+                        b.update(tote.save_stream(file, wd.get_store()))
+                except OSError as e:
+                    b['error'] = str(e)
             yield b
             continue
         
@@ -153,8 +156,11 @@ def checkin_save(wd):
             if all(same):
                 yield a
                 continue
-            with open(join(wd.path, b['name']), 'rb') as file:
-                b.update(tote.save_stream(file, wd.get_store()))
+            try:
+                with open(join(wd.path, b['name']), 'rb') as file:
+                    b.update(tote.save_stream(file, wd.get_store()))
+            except OSError as e:
+                b['error'] = str(e)
 
         print('update', b['name'])
         yield b
