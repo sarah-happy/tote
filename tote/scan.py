@@ -271,32 +271,32 @@ def make_ignore(base_path=None):
 #    return tuple(i for i in p.parts if i != '..')
 
 
-#def treescan(path, ignore=None, one_filesystem=False):
-#    '''
-#    scan from path, filtering through ignore, recursing into dirs that are not links.
-#    
-#    if ignore is not provided, create a new ToteIgnore.
-#    
-#    yield each found path
-#    '''
-#    if ignore is None:
-#        ignore = ToteIgnore()
-#    work = deque([path])
-#    while work:
-#        name = work.popleft()
-#        if ignore(name):
-#            continue
-#        yield name
-#        if isdir(name) and not islink(name) and not(one_filesystem and ismount(name)):
-#            try:
-#                l = listdir(name)
-#            except PermissionError as e:
-#                warn(str(e))
-#            else:
-#                for c in l:
-#                    p = join(name, c)
-#                    work.append(p)
-#                work = deque(sorted(work, key=pathkey))
+def treescan(path, ignore=None, one_filesystem=False):
+    '''
+    scan from path, filtering through ignore, recursing into dirs that are not links.
+    
+    if ignore is not provided, create a new ToteIgnore.
+    
+    yield each found path
+    '''
+    if ignore is None:
+        ignore = ToteIgnore()
+    work = deque([path])
+    while work:
+        name = work.popleft()
+        if ignore(name):
+            continue
+        yield name
+        if isdir(name) and not islink(name) and not(one_filesystem and ismount(name)):
+            try:
+                l = listdir(name)
+            except PermissionError as e:
+                warn(str(e))
+            else:
+                for c in l:
+                    p = join(name, c)
+                    work.append(p)
+                work = deque(sorted(work, key=pathkey))
 
 
 def scan_tree_relative(path, ignore=None, one_filesystem=False):

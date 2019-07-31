@@ -61,7 +61,8 @@ def cmd_echo(args):
     print(args)
     
 def cmd_append(args):
-    from tote import treescan, save_file, tojsons
+    from tote import save_file, tojsons
+    from tote.scan import treescan
     from itertools import chain
     
     store = tote.get_store()
