@@ -14,7 +14,8 @@ def cmd_show_workdir(args):
     print('get_store() =', wd.get_store())
 
 def cmd_put(args):
-    from tote import treescan, save_file, save_stream, tojsons
+    from tote import save_file, save_stream, tojsons
+    from tote.scan import treescan
     from itertools import chain
     
     store = tote.get_store()
@@ -155,6 +156,45 @@ def cmd_checkin(args):
         f.writeall(folds)
     os.rename(path_part, path)
 
+def cmd_add(args):
+    from tote.scan import scan_trees, merge_sorted
+    from tote import unfold, fold, get_store, writetote, loadtote, save_file, appendtote
+    from os.path import isfile
+    import tote, os
+
+    tote_name = args.tote
+    paths = args.file
+
+    store = get_store()
+    a = unfold(loadtote(tote_name), store)
+    b = scan_trees(paths)
+    m = merge_sorted(a, b)
+
+    def do_add(m, store):
+        for a, b in m:
+            if b is None:
+                yield a
+                continue
+
+            print('add' if a is None else 'update', b['name'])
+
+            if isfile(b['name']):
+                with open(b['name'], 'rb') as file:
+                    b.update(tote.save_stream(file, store))
+
+            yield b
+
+    o = do_add(m, store)
+
+    with writetote(tote_name+'.part') as w:
+        w.writeall(fold(o, store))
+
+    if isfile(tote_name):
+        with appendtote(tote_name + '.history') as w:
+            w.write(save_file(tote_name, store))
+
+    os.rename(tote_name+'.part', tote_name)
+
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
@@ -214,6 +254,12 @@ def main(argv=None):
 
     c = s.add_parser('checkin', help='checkin the current state')
     c.set_defaults(func=cmd_checkin)
+    
+    c = s.add_parser('add', help='add and updates files in list')
+    c.add_argument('tote')
+    c.add_argument('file', nargs='+')
+    c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
+    c.set_defaults(func=cmd_add)
 
     args = p.parse_args(argv)
     if 'func' not in args:

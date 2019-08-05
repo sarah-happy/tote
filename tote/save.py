@@ -161,7 +161,11 @@ def pathkey(name):
         p = p.relative_to(p.root)
     
     # strip out '..' if present
-    return tuple(i for i in p.parts if i != '..')
+    p = tuple(i for i in p.parts if i != '..')
+    
+    # Path('.').parts == ()
+    
+    return p
 
 
 def save_fold(items, store):

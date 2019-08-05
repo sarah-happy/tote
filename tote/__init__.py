@@ -3,13 +3,18 @@ import sys
 from contextlib import contextmanager
 
 from .save import (
-    save_file, save_stream, save_chunk, 
-    load_content, load_chunk, 
-    fold, unfold,
+    get_file_info,
+    fold,
     itemkey, 
+    load_content,
+    load_chunk, 
+    save_file,
+    save_stream,
+    save_chunk, 
     ts,
-    get_file_info
+    unfold
 )
+
 from .text import tojsons, fromjsons
 
 from . import workdir, scan

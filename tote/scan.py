@@ -16,6 +16,20 @@ from .text import dumps, dump, load_all, load_list
 from .save import ts, get_file_info, pathkey
 
 
+#def lazy_property(fn):
+#    # https://stevenloria.com/lazy-properties/
+#    '''Decorator that makes a property lazy-evaluated.
+#    '''
+#    attr_name = '_lazy_' + fn.__name__
+#
+#    @property
+#    def _lazy_property(self):
+#        if not hasattr(self, attr_name):
+#            setattr(self, attr_name, fn(self))
+#        return getattr(self, attr_name)
+#    return _lazy_property
+
+
 def hash_file(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -35,17 +49,14 @@ def adjust_name(item, have, want):
         item.update(name=name)
     return item
 
-
-class Rules(list):
-    def __call__(self, item):
-        for rule in self:
-            result = rule(item)
-            if result is not None:
-                return result
-        return None
-
+#
+# start ignore rules
+#
 
 def translate_match(pattern):
+    '''
+    translate ignore file line to regex
+    '''
     if pattern[:1] == '/':
         pattern = pattern[1:]
         a = '^'
@@ -54,7 +65,8 @@ def translate_match(pattern):
     
     while pattern.endswith('/'):
         pattern = pattern[:-1]
-    def rep(match):
+
+    def _rep(match):
         c = match.group(0)
         if c[:1] == '[':
             r = c[1:-1]
@@ -69,152 +81,78 @@ def translate_match(pattern):
         if c == '?':
             return '[^/]?'
         return re.escape(c)
-    p = re.sub(r'(\[\!?\]?[^\]]*\]|\*|\?|.)', rep, pattern)
+    p = re.sub(r'(\[\!?\]?[^\]]*\]|\*|\?|.)', _rep, pattern)
 
     return a + p + '$'
 
-
-def compile_match(pattern):
-    return re.compile(translate_match(pattern))
-
-
-class MatchRule:
-    def __init__(self, pattern, path):
-        self.pattern = compile_match(pattern)
-        self.path = Path(path)
-    
-    def __call__(self, path):
-        path = Path(path)
-        # if we have a base, make path relative to it
-        path = path.relative_to(self.path)
-        if self.pattern.match(str(path)):
-            return True
-        return None
-
-    def __repr__(self):
-        return '[MatchRule: pattern=%s, path=%s]'%(self.pattern, self.path)
-
-    
-def make_rule(line, path):
-    if not line or line.startswith('#'):
-        return None
-    
-    # can't ignore the directory where the rule applies.
-    if line in ('', '/', '.'):
-        return None
-    
-    return MatchRule(line, path)
-
-
-def load_ignore(path):
-    path = Path(path)
-    rules = Rules()
-    try:
-        with Path(path, '.toteignore').open('rt') as f:
-            for line in textlines(f):
-                rule = make_rule(line, path)
-                if rule is not None:
-                    rules.append(rule)
-    except FileNotFoundError:
-        pass
-    
-    return rules
-
+def rule_noop(name):
+    return None
 
 def torule(line):
+    '''
+    translate ignore file line into ignore match callable
+    '''
     if not line or line.startswith('#'):
-        return None
+        return rule_noop
     
     # can't ignore the directory where the rule applies.
     if line in ('', '/', '.'):
-        return None
+        return rule_noop
     
-    return Rule(line)
-
-
-class Rule:
-    def __init__(self, pattern):
-        self.pattern = compile_match(pattern)
+    pattern = translate_match(line)
+    matcher = re.compile(pattern)
     
-    def __call__(self, name):
-        if self.pattern.match(str(name)):
-            return True
-        return None
+    class _ignore_rule:
+        def __call__(self, name):
+            if matcher.match(str(name)):
+                return True
+            return None
 
-    def __repr__(self):
-        return '[Rule: pattern=%s]'%(self.pattern)
-    
+        def __repr__(self):
+            return '[rule: line=%s, pattern=%s]'%(line, pattern)
+
+    return _ignore_rule()
 
 def load_rules(path):
-    rules = Rules()
+    '''
+    load the ignore rules defined at path. return a callable that will check the
+    ignore rules against a relative name.
+    '''
+    rules = list()
+    
     try:
         with Path(path, '.toteignore').open('rt') as f:
             for line in textlines(f):
-                rule = torule(line)
-                if rule is not None:
-                    rules.append(rule)
+                if line.startswith('#'):
+                    continue
+
+                # can't ignore the directory where the rule applies.
+                if line in ('', '/', '.'):
+                    continue
+                
+                rules.append(torule(line))
     except FileNotFoundError:
         pass
+
+    def _check(name):
+        for rule in rules:
+            out = rule(name)
+            if out is not None:
+                return out
+        return None
     
-    return rules
-
-
-#class FilterPath:
-#    """A Path wrapper that filters based on .toteignore"""
-#    
-#    def __init__(self, path, ignore=None):
-#        self.path = Path(path)
-#        self.ignore = load_ignore(path)
-#        if ignore is not None:
-#            self.ignore.append(ignore)
-#        
-#    def iterdir(self):
-#        for path in sorted(self.path.iterdir()):
-#            if self.ignore(path):
-#                continue
-#            if path.is_dir():
-#                yield FilterPath(path, self.ignore)
-#            else:
-#                yield path
-#    
-#    def __getattr__(self, attr):
-#        return getattr(self.path, attr)
-#
-#    def __str__(self):
-#        return str(self.path)
-#    
-#    def __repr__(self):
-#        return repr(self.path)
-#        
-#    def __fspath__(self):
-#        return str(self.path)
-
-
-#def toteview(path):
-#    return PathView(path)
-
-
-def lazy_property(fn):
-    # https://stevenloria.com/lazy-properties/
-    '''Decorator that makes a property lazy-evaluated.
-    '''
-    attr_name = '_lazy_' + fn.__name__
-
-    @property
-    def _lazy_property(self):
-        if not hasattr(self, attr_name):
-            setattr(self, attr_name, fn(self))
-        return getattr(self, attr_name)
-    return _lazy_property
+    return _check
 
 
 def make_ignore(base_path=None):
-    '''return a function to check ignore rules'''
+    '''
+    return a function to check ignore rules
+    '''
     @lru_cache()
-    def get_rules(path):
+    def _get_rules(path):
         return load_rules(path)
 
-    def in_parent(path, name):
+    def _in_parent(path, name):
         '''move the path split up one level'''
         parent_path = dirname(path)
         if name is None:
@@ -228,7 +166,8 @@ def make_ignore(base_path=None):
             # we are at the base, the search is done
             return None
 
-        parent, name = in_parent(path, name)
+        parent, name = _in_parent(path, name)
+        
         if parent == path:
             # we tried to go up from the root
             return None
@@ -243,9 +182,11 @@ def make_ignore(base_path=None):
             # so we can name them explicitly to store.
             return True
 
+        rules = _get_rules(parent)
+        
         # XXX name could be any type of path, but the rules are based on posix paths
-        rules = get_rules(parent)
         ignore = rules(name)
+        
         if ignore is not None:
             # we got a rule hit
             return ignore
@@ -258,6 +199,9 @@ def make_ignore(base_path=None):
     
     return check
 
+#
+# end ignore rules
+# 
 
 #def pathkey(name):
 #    '''split and clean up a path for sorting'''
@@ -279,24 +223,26 @@ def treescan(path, ignore=None, one_filesystem=False):
     
     yield each found path
     '''
-    if ignore is None:
-        ignore = ToteIgnore()
-    work = deque([path])
-    while work:
-        name = work.popleft()
-        if ignore(name):
-            continue
-        yield name
-        if isdir(name) and not islink(name) and not(one_filesystem and ismount(name)):
-            try:
-                l = listdir(name)
-            except PermissionError as e:
-                warn(str(e))
-            else:
-                for c in l:
-                    p = join(name, c)
-                    work.append(p)
-                work = deque(sorted(work, key=pathkey))
+    return list_trees([path], ignore=ignore, one_filesystem=one_filesystem)
+
+#    if ignore is None:
+#        ignore = make_ignore(path)
+#    work = deque([path])
+#    while work:
+#        name = work.popleft()
+#        if ignore(name):
+#            continue
+#        yield name
+#        if isdir(name) and not islink(name) and not(one_filesystem and ismount(name)):
+#            try:
+#                l = listdir(name)
+#            except PermissionError as e:
+#                warn(str(e))
+#            else:
+#                for c in l:
+#                    p = join(name, c)
+#                    work.append(p)
+#                work = deque(sorted(work, key=pathkey))
 
 
 def scan_tree_relative(path, ignore=None, one_filesystem=False):
@@ -308,37 +254,38 @@ def scan_tree_relative(path, ignore=None, one_filesystem=False):
     """
     if ignore is None:
         ignore = make_ignore(path)
+    return scan_trees(['.'], relative_to=path, ignore=ignore, one_filesystem=one_filesystem)
 
-    def do_item(name):
-        fullname = join(path, name)
-        
-        if ignore(fullname):
-            return
-        
-        info = get_file_info(fullname)
-        info['name'] = name
-        yield info
-        
-        if should_decend(fullname):
-            yield from do_children(name)
-
-    def do_children(name):
-        try:
-            names = listdir(join(path, name))
-        except PermissionError as e:
-            warn(str(e))
-        else:
-            for child in sorted(names):
-                yield from do_item(join(name, child))
-    
-    def should_decend(fullname):
-        return (
-            isdir(fullname) 
-            and not islink(fullname)
-            and not(one_filesystem and ismount(fullname))
-        )
-
-    yield from do_item('.')
+#    def do_item(name):
+#        fullname = join(path, name)
+#        
+#        if ignore(fullname):
+#            return
+#        
+#        info = get_file_info(fullname)
+#        info['name'] = name
+#        yield info
+#        
+#        if should_decend(fullname):
+#            yield from do_children(name)
+#
+#    def do_children(name):
+#        try:
+#            names = listdir(join(path, name))
+#        except PermissionError as e:
+#            warn(str(e))
+#        else:
+#            for child in sorted(names):
+#                yield from do_item(join(name, child))
+#    
+#    def should_decend(fullname):
+#        return (
+#            isdir(fullname) 
+#            and not islink(fullname)
+#            and not(one_filesystem and ismount(fullname))
+#        )
+#
+#    yield from do_item('.')
 
 
 def merge_sorted(a, b):
@@ -379,3 +326,63 @@ def merge_sorted(a, b):
     while itemb is not None:
         yield (None, itemb)
         itemb = next(iterb, None)
+
+
+def list_trees(paths, relative_to=None, ignore=None, one_filesystem=False):
+    '''
+    scan from paths. filter through ignore. recursing into dirs that are not links.
+    
+    if ignore is not provided, the default file system based ignore is used.
+    
+    yield each found path
+    '''
+    
+    def sorted_queue(paths):
+        return deque(sorted(set(paths), key=pathkey))
+    
+    def should_decend(fullname):
+        return (
+            isdir(fullname) 
+            and not islink(fullname)
+            and not(one_filesystem and ismount(fullname))
+        )
+
+    if ignore is None:
+        ignore = make_ignore()
+    
+    work = sorted_queue(paths)
+    
+    while work:
+        name = work.popleft()
+        
+        if relative_to is None:
+            fullname = name
+        else:
+            fullname = join(relative_to, name)
+        
+        if ignore(fullname):
+            continue
+        
+        yield name
+        
+        if should_decend(fullname):
+            try:
+                l = listdir(fullname)
+            except PermissionError as e:
+                warn(str(e))
+            else:
+                work.extend(join(name, c) for c in l)
+                work = sorted_queue(work)
+
+
+def scan_trees(paths, relative_to=None, **kwargs):
+    for path in list_trees(paths, relative_to=relative_to, **kwargs):
+        if relative_to is None:
+            item = get_file_info(path)
+        else:
+            item = get_file_info(join(relative_to, path))
+            item['name'] = path
+        yield item
+    return
+
+
