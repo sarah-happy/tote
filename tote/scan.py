@@ -328,7 +328,7 @@ def merge_sorted(a, b):
         itemb = next(iterb, None)
 
 
-def list_trees(paths, relative_to=None, ignore=None, one_filesystem=False):
+def list_trees(paths, relative_to=None, ignore=None, recursive=True, one_filesystem=False):
     '''
     scan from paths. filter through ignore. recursing into dirs that are not links.
     
@@ -342,7 +342,8 @@ def list_trees(paths, relative_to=None, ignore=None, one_filesystem=False):
     
     def should_decend(fullname):
         return (
-            isdir(fullname) 
+            recursive
+            and isdir(fullname) 
             and not islink(fullname)
             and not(one_filesystem and ismount(fullname))
         )

@@ -63,7 +63,7 @@ def cmd_echo(args):
     
 def cmd_append(args):
     from tote import save_file, tojsons
-    from tote.scan import treescan
+    from tote.scan import scan_trees
     from itertools import chain
     
     store = tote.get_store()
@@ -75,7 +75,7 @@ def cmd_append(args):
 
     with open(arc, 'at') as o:
         if recursive:
-            files = chain.from_iterable(map(treescan, files))
+            files = list_trees(files)
         for file in files:
             f = save_file(file, store)
             o.write(tojsons(f))

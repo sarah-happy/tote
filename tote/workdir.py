@@ -7,8 +7,10 @@ import tote
 import tote.store
 import tote.scan
 
+
 def is_workdir(path):
     return isdir(join(path, '.tote'))
+
 
 def parents(path):
     path = abspath(path)
@@ -19,6 +21,7 @@ def parents(path):
         parent = dirname(path)
     return
 
+
 def find_workdir(path='.'):
     if is_workdir(path):
         return path
@@ -27,10 +30,12 @@ def find_workdir(path='.'):
             return p
     raise FileNotFoundError("no .tote in current or parent folders")
 
+    
 def load_config(file):
     c = configparser.ConfigParser()
     c.read(file)
     return c
+
 
 def attach(path=None):
     if path is None:
@@ -39,6 +44,7 @@ def attach(path=None):
         return WorkDir(path)
     raise FileNotFoundError(join(path, '.tote'))
 
+    
 class WorkDir:
     def __init__(self, path):
         self.path = path
