@@ -166,7 +166,10 @@ def cmd_add(args):
     paths = args.file
 
     store = get_store()
-    a = unfold(loadtote(tote_name), store)
+    try:
+        a = unfold(loadtote(tote_name), store)
+    except FileNotFoundError:
+        a = []
     b = scan_trees(paths)
     m = merge_sorted(a, b)
 
