@@ -85,7 +85,8 @@ def cmd_list(args):
     from tote import unfold, readtote
     
     arc = args.tote
-
+    files = args.file
+    
     store = tote.get_store()
     with readtote(arc) as i:
         for item in unfold(i, store):
@@ -121,6 +122,24 @@ def cmd_refold(args):
     with readtote(name) as i, writetote(name + '.part') as o:
         l = unfold(i, store)
         f = fold(l, store)
+        o.writeall(f)
+
+    from tote import save_file
+    with appendtote(name + '.history') as o:
+        o.write(save_file(name, store))
+
+    os.rename(name + '.part', name)
+
+    
+def cmd_unfold(args):
+    store = tote.get_store()
+
+    from tote import fold, unfold, readtote, writetote, appendtote
+    import os
+
+    name=args.tote
+    with readtote(name) as i, writetote(name + '.part') as o:
+        l = unfold(i, store)
         o.writeall(f)
 
     from tote import save_file
@@ -199,6 +218,24 @@ def cmd_add(args):
     os.rename(tote_name+'.part', tote_name)
 
 
+def cmd_extract(args):
+    '''extract files from archive'''
+    tote_name = args.tote
+    members = args.file
+    out_base = args.to
+
+    if members:
+        print('not implemented')
+        return
+
+    from tote.save import extract_file
+    store = tote.get_store()
+    with tote.readtote(tote_name) as f:
+        for item in tote.unfold(f, store):
+            print(item['name'])
+            extract_file(item, store, out_base)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
     s = p.add_subparsers()
@@ -238,6 +275,7 @@ def main(argv=None):
     
     c = s.add_parser('list', help='list files in list')
     c.add_argument('tote')
+    c.add_argument('file', nargs='*')
     c.set_defaults(func=cmd_list)
     
     c = s.add_parser('fold-pipe', help='fold list to stdout')
@@ -252,6 +290,10 @@ def main(argv=None):
     c.add_argument('tote')
     c.set_defaults(func=cmd_refold)
     
+    c = s.add_parser('unfold', help='unfold list')
+    c.add_argument('tote')
+    c.set_defaults(func=cmd_unfold)
+    
     c = s.add_parser('status', help='show what changed since the last checkin')
     c.set_defaults(func=cmd_status)
 
@@ -263,6 +305,12 @@ def main(argv=None):
     c.add_argument('file', nargs='+')
     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
     c.set_defaults(func=cmd_add)
+    
+    c = s.add_parser('extract', help='extract files from archive')
+    c.add_argument('tote')
+    c.add_argument('file', nargs='*')
+    c.add_argument('--to')
+    c.set_defaults(func=cmd_extract)
 
     args = p.parse_args(argv)
     if 'func' not in args:

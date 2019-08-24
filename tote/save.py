@@ -22,9 +22,6 @@ def load_tree(store, hexdigest):
     return load_all(blob)
 
 
-class TooBigError(Exception): pass
-
-
 def chunks(file, size=2**24):
     return iter(partial(file.read, size), b'')
 
@@ -239,3 +236,21 @@ def save_file(name, store, *args, **kwargs):
     return out
 
 
+def extract_file(item, store, out=None):
+    # clean up the path: make relative, remove '.' and '..'
+    name_parts = pathkey(item.get('name'))
+    if out is None:
+        name = os.path.join(*name_parts)
+    else:
+        name = os.path.join(out, *name_parts)
+    
+    if item['type'] == 'dir':
+        os.makedirs(name, exist_ok=True)
+
+    if item['type'] == 'file':
+        with open(name, 'wb') as f:
+            for chunk in load_content(item, store):
+                f.write(chunk)
+
+    
+    
