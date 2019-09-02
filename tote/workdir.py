@@ -1,5 +1,9 @@
 import configparser
 import os
+import pathlib
+
+from pathlib import Path
+
 from os.path import join, isdir, dirname, abspath, isfile
 from os.path import expanduser, expandvars
 
@@ -23,7 +27,8 @@ def parents(path):
 
 
 def find_workdir(path='.'):
-    if is_workdir(path):
+    path = Path(path)
+    if (path / '.tote').is_dir():
         return path
     for p in parents(path):
         if is_workdir(p):

@@ -2,40 +2,43 @@ import sys
 import argparse
 import tote
 
+
 def cmd_blob_cat(args):
-    store = tote.get_store()
-    b = store.load_blob(args.data)
-    sys.stdout.buffer.write(b)
+    conn = tote.connect()
+    blob = conn.store.load_blob(blob_name)
+    sys.stdout.buffer.write(blob)
+
 
 def cmd_show_workdir(args):
-    wd = tote.get_workdir(args.path)
-    print('path =', wd.path)
-    print('store.path =', wd.config.get('store', 'path', fallback=None))
-    print('get_store() =', wd.get_store())
+    conn = tote.connect(args.path)
+    print('workdir_path =', conn.workdir_path)
+    print('store_path =', conn.store_path)
+    print('get_store() =', conn.store)
+    
 
 def cmd_put(args):
-    from tote import save_file, save_stream, tojsons
+    from tote import tojsons
     from tote.scan import treescan
     from itertools import chain
     
-    store = tote.get_store()
+    conn = tote.connect()
     
     files = args.path
     if files:
         if args.recursive:
             files = chain.from_iterable(map(treescan, files))
         for file in files:
-            f = save_file(file, store)
+            f = conn.put_file(file)
             print(tojsons(f))
     else:
-        f = save_stream(sys.stdin.buffer, store)
+        f = conn.put_stream(sys.stdin.buffer)
         print(tojsons(f))
-        
+
+
 def cmd_cat(args):
     from tote import readtote, fromjsons
-    from tote.save import load_content
     
-    store = tote.get_store()
+    conn = tote.connect()
     
     out = sys.stdout.buffer
     
@@ -43,12 +46,13 @@ def cmd_cat(args):
         for file in args.tote:
             with readtote(file) as items:
                 for item in items:
-                    for chunk in load_content(item, store):
+                    for chunk in conn.get_chunks(item):
                         out.write(chunk)
     else:
         for item in fromjsons(sys.stdin):
-            for chunk in load_content(item, store):
+            for chunk in conn.get_chunks(item):
                 out.write(chunk)
+
 
 def cmd_scan(args):
     from tote import treescan
@@ -57,40 +61,42 @@ def cmd_scan(args):
     files = chain.from_iterable(map(treescan, files))
     for file in files:
         print(file)
-                
+    
+    
 def cmd_echo(args):
     print(args)
+
     
 def cmd_append(args):
-    from tote import save_file, tojsons
+    from tote import tojsons
     from tote.scan import scan_trees
     from itertools import chain
     
-    store = tote.get_store()
-
     arc = args.tote
     files = args.file
     recursive = args.recursive
     u = sys.stdout
 
+    conn = tote.connect()
+
     with open(arc, 'at') as o:
         if recursive:
             files = list_trees(files)
         for file in files:
-            f = save_file(file, store)
+            f = conn.put_file(file)
             o.write(tojsons(f))
             print('append', file, file=u)
 
+
 def cmd_list(args):
-    from tote import unfold, readtote
-    
     arc = args.tote
     files = args.file
     
-    store = tote.get_store()
-    with readtote(arc) as i:
-        for item in unfold(i, store):
+    conn = tote.connect(arc)
+    with conn.read_file(arc) as f:
+        for item in f:
             print(item.get('type'), item.get('size', None), item.get('name', None))
+            
             
 def cmd_fold_pipe(args):
     from tote import fold, readtote, ToteWriter

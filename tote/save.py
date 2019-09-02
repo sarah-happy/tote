@@ -71,8 +71,11 @@ def make_blob(data):
 
 
 def compress(data):
-    z = b'zlib\n' + zlib.compress(data, 9)
-    return z  if len(z) < len(data)  else data
+    out = b'zlib\n' + zlib.compress(data, 9)
+    if len(out) < len(data):
+        return out    
+    else:
+        return data
 
 
 def encrypt(data, lock, key):
