@@ -106,7 +106,9 @@ class _ToteConnection:
     def __init__(self, workdir_path):
         self.workdir_path = Path(workdir_path)
         
-        self.config = _load_config(self.workdir_path / '.tote' / 'config')
+        self.tote_path = self.workdir_path / '.tote'
+        
+        self.config = _load_config(self.tote_path / 'config')
 
         store_path = self.config.get('store', 'path', fallback=None)
         if store_path is None:
@@ -118,9 +120,6 @@ class _ToteConnection:
         
         self.store = FileStore(self.store_path)
     
-    def unfold(self, items):
-        return unfold(items, self.store)
-    
 #     with conn.read_file(file_name) as items_in:
 #         for item in items_in:
 #             pass
@@ -128,18 +127,18 @@ class _ToteConnection:
     @contextmanager
     def read_file(self, file_name, unfold=True):
         with open(file_name, 'rt') as f:
-            s = fromjsons(f)
-            if unfold:
-                s = self.unfold(s)
-            yield s
+            items_in = self.read_stream(f, unfold)
+            yield items_in
     
-    
-    def write_file():
-        pass
-    
-
-
 #     items_in = conn.read_stream(stream)
+
+    def read_stream(self, stream, unfold=True):
+        items_in = fromjsons(stream)
+
+        if unfold:
+            items_in = self.unfold(items_in)
+        
+        return items_in
 
 #     items_in = conn.parse(bytes)
 
@@ -149,23 +148,28 @@ class _ToteConnection:
 #         items_out.write(item)
 
     @contextmanager
-    def write_file(self, file_name, fold=True):
+    def write_file(self, file_name):
         with open(file_name, 'wt') as f:
             with ToteWriter(fd=f) as w:
                 yield w
 
     @contextmanager
-    def append_file(self, name, fold=True):
+    def append_file(self, name):
         with open(name, 'at') as out:
             with ToteWriter(fd=out) as w:
                 yield w
 
-    def write_stream(self, stream, fold=True):
-        return ToteWriter(fd=out)
+    def write_stream(self, stream):
+        return ToteWriter(fd=stream)
         
 #     items_out = conn.write_stream(stream)
 #     items_out.write(item)
 
+    def fold(self, items):
+        return fold(items, self.store)
+
+    def unfold(self, items):
+        return unfold(items, self.store)
 
 #     get -- read item into memory
 #     get_file -- read item into file

@@ -44,12 +44,12 @@ def cmd_cat(args):
     
     if args.tote:
         for file in args.tote:
-            with readtote(file) as items:
-                for item in items:
+            with conn.read_file(file) as items_in:
+                for item in items_in:
                     for chunk in conn.get_chunks(item):
                         out.write(chunk)
     else:
-        for item in fromjsons(sys.stdin):
+        for item in conn.read_stream(sys.stdin):
             for chunk in conn.get_chunks(item):
                 out.write(chunk)
 
@@ -99,106 +99,97 @@ def cmd_list(args):
             
             
 def cmd_fold_pipe(args):
-    from tote import fold, readtote, ToteWriter
-
     arc = args.tote
+    out = sys.stdout.buffer
 
-    store = tote.get_store()
-    with readtote(arc) as i, ToteWriter() as o:
-        f = fold(i, store)
-        o.writeall(f)
+    conn = tote.connect()
+    with conn.read_file(arc, unfold=False) as i:
+        with conn.write_stream(out) as o:
+            f = conn.fold(i)
+            o.writeall(f)
+
 
 def cmd_refold_pipe(args):
-    store = tote.get_store()
-
-    from tote import fold, unfold, readtote, ToteWriter
-
-    with readtote(args.tote) as i, ToteWriter() as o:
-        l = unfold(i, store)
-        f = fold(l, store)
-        o.writeall(f)
+    arc = args.tote
+    out = sys.stdout
+    
+    conn = tote.connect(arc)
+    with conn.read_file(arc) as items_in:
+        with conn.write_stream(out) as items_out:
+            items = conn.fold(items_in)
+            items_out.writeall(items)
 
 def cmd_refold(args):
-    store = tote.get_store()
+    arc = args.tote
 
-    from tote import fold, unfold, readtote, writetote, appendtote
+    conn = tote.connect(arc)
+
+    with conn.read_file(arc) as items_in:
+        with conn.write_file(arc + '.part') as items_out:
+            items = conn.fold(items_in)
+            items_out.writeall(items)
+
+    with conn.append_file(arc + '.history') as items_out:
+        items_out.write(conn.put_file(arc))
+
     import os
-
-    name=args.tote
-    with readtote(name) as i, writetote(name + '.part') as o:
-        l = unfold(i, store)
-        f = fold(l, store)
-        o.writeall(f)
-
-    from tote import save_file
-    with appendtote(name + '.history') as o:
-        o.write(save_file(name, store))
-
-    os.rename(name + '.part', name)
+    os.rename(arc + '.part', arc)
 
     
 def cmd_unfold(args):
-    store = tote.get_store()
+    arc = args.tote
+    
+    conn = tote.connect(arc)
 
-    from tote import fold, unfold, readtote, writetote, appendtote
+    with conn.read_file(arc) as items_in:
+        with conn.write_file(arc + '.part') as items_out:
+            items_out.writeall(items_in)
+
+    with conn.append_file(arc + '.history') as items_out:
+        items_out.write(conn.put_file(arc))
+
     import os
-
-    name=args.tote
-    with readtote(name) as i, writetote(name + '.part') as o:
-        l = unfold(i, store)
-        o.writeall(f)
-
-    from tote import save_file
-    with appendtote(name + '.history') as o:
-        o.write(save_file(name, store))
-
-    os.rename(name + '.part', name)
+    os.rename(arc + '.part', arc)
 
     
 def cmd_status(args):
+    conn = tote.connect()
+    
     from tote.workdir import checkin_status
-    wd = tote.get_workdir()
-    checkin_status(wd)
+    checkin_status(conn)
 
     
 def cmd_checkin(args):
     from tote.save import ts
     from tote.workdir import checkin_save
-    from os.path import join
-    import os
 
-    wd = tote.get_workdir()
-    update = checkin_save(wd)
-    folds = tote.save.fold(update, wd.get_store())
+    conn = tote.connect()
+    
+    update = checkin_save(conn)
+    
+    folds = conn.fold(update)
 
-    path = join(wd.path, '.tote', 'checkin', 'default')
-    os.makedirs(path, exist_ok=True)
+    path = conn.tote_path / 'checkin' / 'default'
+    path.mkdir(parents=True, exist_ok=True)
 
-    path = join(path, ts() + '.tote')
-    path_part = path + '.part'
-    with tote.writetote(path_part) as f:
+    path = path / (ts() + '.tote')
+    path_part = path.with_name(path.name + '.part')
+    
+    with conn.write_file(path_part) as f:
         # save_new_checkin looks for the most recent checkin here
         f.writeall(folds)
-    os.rename(path_part, path)
+    
+    path_part.rename(target=path)
+
 
 def cmd_add(args):
     from tote.scan import scan_trees, merge_sorted
-    from tote import unfold, fold, get_store, writetote, loadtote, save_file, appendtote
-    from os.path import isfile
-    import tote, os
-
-    tote_name = args.tote
+    from pathlib import Path, PurePosixPath
+    
+    arc = Path(args.tote)
     paths = args.file
 
-    store = get_store()
-    try:
-        a = unfold(loadtote(tote_name), store)
-    except FileNotFoundError:
-        a = []
-    b = scan_trees(paths)
-    m = merge_sorted(a, b)
-
-    def do_add(m, store):
+    def do_add(m, conn):
         for a, b in m:
             if b is None:
                 yield a
@@ -206,27 +197,42 @@ def cmd_add(args):
 
             print('add' if a is None else 'update', b['name'])
 
-            if isfile(b['name']):
-                with open(b['name'], 'rb') as file:
-                    b.update(tote.save_stream(file, store))
+            path = PurePosixPath(b['name'])
+            path = Path(path)
+            if path.is_file():
+                with open(path, 'rb') as file:
+                    b.update(conn.put_stream(file))
 
             yield b
 
-    o = do_add(m, store)
+    conn = tote.connect(arc)
+    
+    try:
+        with conn.read_file(arc, unfold=False) as f:
+            items_in = list(f)
+    except FileNotFoundError:
+        items_in = []
+    items_in = conn.unfold(items_in)
+    b = scan_trees(paths)
+    m = merge_sorted(items_in, b)
 
-    with writetote(tote_name+'.part') as w:
-        w.writeall(fold(o, store))
+    o = do_add(m, conn)
 
-    if isfile(tote_name):
-        with appendtote(tote_name + '.history') as w:
-            w.write(save_file(tote_name, store))
+    arc_part = arc.with_name(arc.name + '.part')
+    with conn.write_file(arc_part) as w:
+        w.writeall(conn.fold(o))
 
-    os.rename(tote_name+'.part', tote_name)
+    arc_history = arc.with_name(arc.name + '.history')
+    if arc.is_file():
+        with conn.append_file(arc_history) as w:
+            w.write(conn.put_file(arc))
+
+    arc_part.rename(target=arc)
 
 
 def cmd_extract(args):
     '''extract files from archive'''
-    tote_name = args.tote
+    arc = args.tote
     members = args.file
     out_base = args.to
 
@@ -234,12 +240,12 @@ def cmd_extract(args):
         print('not implemented')
         return
 
+    conn = tote.connect(arc)
     from tote.save import extract_file
-    store = tote.get_store()
-    with tote.readtote(tote_name) as f:
-        for item in tote.unfold(f, store):
+    with conn.read_file(arc) as items_in:
+        for item in items_in:
             print(item['name'])
-            extract_file(item, store, out_base)
+            extract_file(item, conn.store, out_base)
 
 
 def main(argv=None):

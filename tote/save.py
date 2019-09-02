@@ -197,7 +197,7 @@ def fold(items, store, fold_size=2**22):
 
 def get_file_info(path):
     out = OrderedDict()
-    out['name'] = path
+    out['name'] = str(path)
     
     try:
         st = lstat(path)

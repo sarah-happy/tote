@@ -76,6 +76,10 @@ class WorkDir:
     
     def __repr__(self):
         return "[WorkDir: %s]" % (self.path)
+
+    
+def get_ignore(conn):
+    return tote.scan.make_ignore(conn.workdir_path)
     
 
 def most_recent_checkin(workdir):
@@ -97,20 +101,23 @@ def most_recent_checkin(workdir):
     return None
 
 
-def read_most_recent_checkin(workdir, store):
+def read_most_recent_checkin(conn):
     """
     yield item objects from most recent checkin sorted by path parts
     """
-    path = most_recent_checkin(workdir)
+    path = most_recent_checkin(conn.workdir_path)
     if path is None:
-        return
-    items = tote.loadtote(path)
-    yield from tote.unfold(items, store)
+        return tuple()
+    
+    with conn.read_file(path, unfold=False) as items_in:
+        items = list(items_in)
+
+    return conn.unfold(items)
 
 
-def checkin_status(wd):
-    lista = wd.read_most_recent_checkin()
-    listb = tote.scan.scan_tree_relative(wd.path, ignore=wd.get_ignore(), one_filesystem=True)
+def checkin_status(conn):
+    lista = read_most_recent_checkin(conn)
+    listb = tote.scan.scan_tree_relative(conn.workdir_path, ignore=get_ignore(conn), one_filesystem=True)
     for a, b in tote.scan.merge_sorted(lista, listb):
         if a is None:
             print('new', b['name'])
@@ -134,16 +141,18 @@ def checkin_status(wd):
         print('update', b['name'])
 
 
-def checkin_save(wd):
-    lista = wd.read_most_recent_checkin()
-    listb = tote.scan.scan_tree_relative(wd.path, ignore=wd.get_ignore(), one_filesystem=True)
+def checkin_save(conn):
+    lista = read_most_recent_checkin(conn)
+    listb = tote.scan.scan_tree_relative(conn.workdir_path, ignore=get_ignore(conn), one_filesystem=True)
+    workdir_path = conn.workdir_path
     for a, b in tote.scan.merge_sorted(lista, listb):
         if a is None:
             print('new', b['name'])
-            if isfile(join(wd.path, b['name'])):
+            path = workdir_path / b['name']
+            if path.is_file():
                 try:
-                    with open(join(wd.path, b['name']), 'rb') as file:
-                        b.update(tote.save_stream(file, wd.get_store()))
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
                 except OSError as e:
                     b['error'] = str(e)
             yield b
@@ -167,9 +176,10 @@ def checkin_save(wd):
             if all(same):
                 yield a
                 continue
+            path = workdir_path / b['name']
             try:
-                with open(join(wd.path, b['name']), 'rb') as file:
-                    b.update(tote.save_stream(file, wd.get_store()))
+                with open(path, 'rb') as file:
+                    b.update(conn.put_stream(file))
             except OSError as e:
                 b['error'] = str(e)
 
