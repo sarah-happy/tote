@@ -223,3 +223,117 @@ def timestamp(secs=None, safe=False):
     
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', t)
 
+
+from pathlib import Path, PurePosixPath
+from datetime import datetime
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Chunk:
+    size: int = None
+    sha256: str = None
+    lock: str = None
+    key: str = None
+    data: str = None
+
+
+@dataclass
+class FileItem:
+    name: str = None
+    type: str = None
+    mtime: datetime = None
+    size: int = None
+    content: list = None
+    sha256: str = None
+    target: str = None
+
+
+@dataclass
+class FoldItem:
+    name_min: str = None
+    name_max: str = None
+    type: str = None
+    content: list = None
+    count: int = None
+
+
+def decode_item(obj):
+    if 'type' in obj:
+        if obj['type'] == 'fold':
+            return _decode_fold_item(obj)
+        else:
+            return _decode_file_item(obj)
+    
+    return obj
+
+
+def _decode_fold_item(obj):
+    fields = {
+        'name_min': _decode_name,
+        'name_max': _decode_name,
+        'type': _decode_str,
+        'content': _decode_content,
+        'count': _decode_int,
+    }
+    kwargs = { field: func(obj.get(field, None)) for field, func in fields.items() }
+    return FoldItem(**kwargs)
+
+
+def _decode_str(obj):
+    if obj is None:
+        return None
+    return str(obj)
+
+
+def _decode_int(obj):
+    if obj is None:
+        return None
+    return int(obj)
+
+
+def _decode_file_item(obj):
+    fields = {
+        'name': _decode_name,
+        'type': _decode_str,
+        'mtime': _decode_timestamp,
+        'size': _decode_int,
+        'content': _decode_content,
+        'sha256': _decode_str,
+        'target': _decode_str,
+    }
+    kwargs = { field: func(obj.get(field, None)) for field, func in fields.items() }
+    return FileItem(**kwargs)
+
+
+def _decode_content(content):
+    if content is None:
+        return None
+    return [ _decode_chunk(i) for i in content ]
+
+
+def _decode_chunk(obj):
+    return Chunk(
+        size=_decode_int(obj.get('size')),
+        sha256=obj.get('sha256'),
+        lock=obj.get('lock'),
+        key=obj.get('key'),
+        data=obj.get('data'),
+    )
+
+
+def _decode_name(name):
+    path = PurePosixPath(name)
+    if path.is_absolute():
+        path = path.relative_to(path.root)
+    parts = [ i for i in path.parts if i not in ('.', '..') ]
+    return PurePosixPath(*parts)
+
+
+def _decode_timestamp(timestamp):
+    if timestamp is None:
+        return None
+
+    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
+
+
