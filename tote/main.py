@@ -135,7 +135,16 @@ def cmd_refold(args):
     import os
     os.rename(arc + '.part', arc)
 
+
+def cmd_unfold_pipe(args):
+    arc = args.tote
+    out = sys.stdout
     
+    conn = tote.connect(arc)
+    with conn.read_file(arc) as items_in:
+        with conn.write_stream(out) as items_out:
+            items_out.writeall(items_in)
+
 def cmd_unfold(args):
     arc = args.tote
     
@@ -302,6 +311,10 @@ def main(argv=None):
     c.add_argument('tote')
     c.set_defaults(func=cmd_refold)
     
+    c = s.add_parser('unfold-pipe', help='unfold list to stdout')
+    c.add_argument('tote')
+    c.set_defaults(func=cmd_unfold_pipe)
+
     c = s.add_parser('unfold', help='unfold list')
     c.add_argument('tote')
     c.set_defaults(func=cmd_unfold)
