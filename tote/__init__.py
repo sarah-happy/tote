@@ -15,6 +15,7 @@ from .save import (
     unfold
 )
 
+
 from .text import tojsons, fromjsons
 
 from . import workdir, scan
@@ -210,3 +211,15 @@ def connect(path=None):
 
 
 from .store import FileStore
+
+
+def timestamp(secs=None, safe=False):
+    import time
+    
+    t = time.gmtime(secs)
+    
+    if safe:
+        return time.strftime('%Y-%m-%dT%H-%M-%SZ', t)
+    
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', t)
+

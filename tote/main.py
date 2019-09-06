@@ -169,7 +169,7 @@ def cmd_status(args):
 
     
 def cmd_checkin(args):
-    from tote.save import ts
+    from tote import timestamp
     from tote.workdir import checkin_save
 
     conn = tote.connect()
@@ -181,7 +181,8 @@ def cmd_checkin(args):
     path = conn.tote_path / 'checkin' / 'default'
     path.mkdir(parents=True, exist_ok=True)
 
-    path = path / (ts() + '.tote')
+    
+    path = path / (timestamp(safe=True) + '.tote')
     path_part = path.with_name(path.name + '.part')
     
     with conn.write_file(path_part) as f:
