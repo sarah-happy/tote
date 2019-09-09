@@ -2,10 +2,12 @@ import sys
 import argparse
 import tote
 
+from pathlib import Path
+
 
 def cmd_blob_cat(args):
     conn = tote.connect()
-    blob = conn.store.load_blob(blob_name)
+    blob = conn.store.load_blob(args.data)
     sys.stdout.buffer.write(blob)
 
 
@@ -13,31 +15,25 @@ def cmd_show_workdir(args):
     conn = tote.connect(args.path)
     print('workdir_path =', conn.workdir_path)
     print('store_path =', conn.store_path)
-    print('get_store() =', conn.store)
+    print('store =', conn.store)
     
 
 def cmd_put(args):
-    from tote import tojsons
-    from tote.scan import treescan
-    from itertools import chain
+    from pathlib import Path
     
     conn = tote.connect()
+
+    out = conn.write_stream(sys.stdout)
     
-    files = args.path
-    if files:
-        if args.recursive:
-            files = chain.from_iterable(map(treescan, files))
-        for file in files:
-            f = conn.put_file(file)
-            print(tojsons(f))
+    if args.path:
+        paths = [ Path(path) for path in args.path ]
+        for path in tote.list_trees(paths, recurse=args.recursive):
+            out.write(conn.put_file(path))
     else:
-        f = conn.put_stream(sys.stdin.buffer)
-        print(tojsons(f))
+        out.write(conn.put_stream(sys.stdin.buffer))
 
 
 def cmd_cat(args):
-    from tote import readtote, fromjsons
-    
     conn = tote.connect()
     
     out = sys.stdout.buffer
@@ -55,12 +51,10 @@ def cmd_cat(args):
 
 
 def cmd_scan(args):
-    from tote import treescan
-    from itertools import chain
-    files = args.path
-    files = chain.from_iterable(map(treescan, files))
-    for file in files:
-        print(file)
+    paths = [ Path(path) for path in args.path ]
+    items = tote.scan_trees(paths)
+    for item in items:
+        print(item)
     
     
 def cmd_echo(args):
@@ -68,24 +62,17 @@ def cmd_echo(args):
 
     
 def cmd_append(args):
-    from tote import tojsons
-    from tote.scan import scan_trees
-    from itertools import chain
-    
     arc = args.tote
     files = args.file
     recursive = args.recursive
     u = sys.stdout
 
     conn = tote.connect()
-
-    with open(arc, 'at') as o:
-        if recursive:
-            files = list_trees(files)
-        for file in files:
-            f = conn.put_file(file)
-            o.write(tojsons(f))
+    with conn.append_file(arc) as o:
+        for file in tote.list_trees(files, recurse=recursive):
             print('append', file, file=u)
+            f = conn.put_file(file)
+            o.write(f)
 
 
 def cmd_list(args):
@@ -95,7 +82,7 @@ def cmd_list(args):
     conn = tote.connect(arc)
     with conn.read_file(arc) as f:
         for item in f:
-            print(item.get('type'), item.get('size', None), item.get('name', None))
+            print(item.type, item.size, item.name)
             
             
 def cmd_fold_pipe(args):
@@ -169,7 +156,6 @@ def cmd_status(args):
 
     
 def cmd_checkin(args):
-    from tote import timestamp
     from tote.workdir import checkin_save
 
     conn = tote.connect()
@@ -181,8 +167,7 @@ def cmd_checkin(args):
     path = conn.tote_path / 'checkin' / 'default'
     path.mkdir(parents=True, exist_ok=True)
 
-    
-    path = path / (timestamp(safe=True) + '.tote')
+    path = path / (tote.format_timestamp(safe=True) + '.tote')
     path_part = path.with_name(path.name + '.part')
     
     with conn.write_file(path_part) as f:
@@ -205,10 +190,9 @@ def cmd_add(args):
                 yield a
                 continue
 
-            print('add' if a is None else 'update', b['name'])
+            print('add' if a is None else 'update', b.name)
 
-            path = PurePosixPath(b['name'])
-            path = Path(path)
+            path = Path(b.name)
             if path.is_file():
                 with open(path, 'rb') as file:
                     b.update(conn.put_stream(file))
@@ -223,7 +207,7 @@ def cmd_add(args):
     except FileNotFoundError:
         items_in = []
     items_in = conn.unfold(items_in)
-    b = scan_trees(paths)
+    b = map(tote.decode_item, scan_trees(paths))
     m = merge_sorted(items_in, b)
 
     o = do_add(m, conn)
@@ -244,18 +228,17 @@ def cmd_extract(args):
     '''extract files from archive'''
     arc = args.tote
     members = args.file
-    out_base = args.to
+    to = args.to
 
     if members:
         print('not implemented')
         return
 
     conn = tote.connect(arc)
-    from tote.save import extract_file
     with conn.read_file(arc) as items_in:
         for item in items_in:
-            print(item['name'])
-            extract_file(item, conn.store, out_base)
+            print(item.name)
+            conn.get_file(item, out_base=to)
 
 
 def main(argv=None):

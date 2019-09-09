@@ -254,7 +254,12 @@ def scan_tree_relative(path, ignore=None, one_filesystem=False):
     """
     if ignore is None:
         ignore = make_ignore(path)
-    return scan_trees(['.'], relative_to=path, ignore=ignore, one_filesystem=one_filesystem)
+    return scan_trees(
+        ['.'],
+        relative_to=path,
+        ignore=ignore,
+        one_filesystem=one_filesystem
+    )
 
 #    def do_item(name):
 #        fullname = join(path, name)
@@ -288,6 +293,8 @@ def scan_tree_relative(path, ignore=None, one_filesystem=False):
 #    yield from do_item('.')
 
 
+from pathlib import PurePosixPath
+
 def merge_sorted(a, b):
     """
     yields pairs (item object a, item object b) where the names match,
@@ -302,15 +309,15 @@ def merge_sorted(a, b):
     itemb = next(iterb, None)
     
     while itema is not None and itemb is not None:
-        namea = pathkey(itema['name'])
-        nameb = pathkey(itemb['name'])
+        namea = itema.name
+        nameb = itemb.name
         
         if namea < nameb:
             yield (itema, None)
             itema = next(itera, None)
             continue
 
-        if namea > nameb:
+        if nameb < namea:
             yield (None, itemb)
             itemb = next(iterb, None)
             continue

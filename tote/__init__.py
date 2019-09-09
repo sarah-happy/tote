@@ -1,81 +1,43 @@
 import sys
+import json
+import os
+import time
+
+from itertools import groupby
+from collections import deque
 
 from contextlib import contextmanager
-
-from .save import (
-    get_file_info,
-    fold,
-    itemkey, 
-    load_content,
-    load_chunk, 
-    save_file,
-    save_stream,
-    save_chunk, 
-    ts,
-    unfold
-)
-
-
-from .text import tojsons, fromjsons
-
-from . import workdir, scan
+from hashlib import sha256
+from functools import partial
 
 from os.path import expanduser, expandvars
 
-
-def get_workdir(path=None):
-    return workdir.attach(path)
-
-
-def get_store(path=None):
-    wd = get_workdir(path)
-    return wd.get_store()
-
-
-@contextmanager
-def readtote(name):
-    with open(name, 'rt') as f:
-        yield fromjsons(f)
-    return
-
-
-def loadtote(name):
-    with readtote(name) as f:
-        return list(f)
-
-
-class ToteWriter:
-    def __init__(self, fd=sys.stdout):
-        self.fd = fd
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-    def write(self, item):
-        self.fd.write(tojsons(item))
-    def writeall(self, items):
-        for item in items:
-            self.fd.write(tojsons(item))
-
-
-@contextmanager
-def writetote(name):
-    with open(name, 'wt') as o:
-        with ToteWriter(fd=o) as w:
-            yield w
-
-
-@contextmanager
-def appendtote(name):
-    with open(name, 'at') as o:
-        with ToteWriter(fd=o) as w:
-            yield w
-
-
+from pathlib import Path, PurePosixPath
+from datetime import datetime
+from dataclasses import dataclass, field
 from pathlib import Path
 from itertools import chain
 import configparser
+import zlib
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
 
+from .store import FileStore
+
+
+def connect(path=None):
+    '''
+    connect to a workspace.
+    
+    The workspace is the folder that has the .tote folder in it.
+    
+    The repository is the .tote folder in the workspace.
+    '''
+    path = _find_workdir(path)
+
+    return _ToteConnection(
+        workdir_path=path
+    )
 
 
 def _find_workdir(path=None):
@@ -90,7 +52,10 @@ def _find_workdir(path=None):
     
     path = path.absolute()
     
-    for p in chain([ path ], path.parents):
+    search = [ path ]
+    search.extend(path.parents)
+    
+    for p in search:
         if (p / '.tote').is_dir():
             return p
     else:
@@ -112,30 +77,24 @@ class _ToteConnection:
         self.config = _load_config(self.tote_path / 'config')
 
         store_path = self.config.get('store', 'path', fallback=None)
-        if store_path is None:
-            self.store_path = self.workdir_path / '.tote'
-        else:
+        if store_path is not None:
             store_path = expandvars(store_path)
             store_path = expanduser(store_path)
-            self.store_path = Path(store_path)
+            store_path = Path(store_path)
+        else:
+            store_path = workdir_path / '.tote'
         
+        self.store_path = store_path
         self.store = FileStore(self.store_path)
     
-#     with conn.read_file(file_name) as items_in:
-#         for item in items_in:
-#             pass
-
     @contextmanager
     def read_file(self, file_name, unfold=True):
         with open(file_name, 'rt') as f:
-            items_in = self.read_stream(f, unfold)
-            yield items_in
+            yield self.read_stream(f, unfold)
     
-#     items_in = conn.read_stream(stream)
-
     def read_stream(self, stream, unfold=True):
-        items_in = fromjsons(stream)
-
+        items_in = decode_item_stream(stream)
+        
         if unfold:
             items_in = self.unfold(items_in)
         
@@ -166,67 +125,201 @@ class _ToteConnection:
 #     items_out = conn.write_stream(stream)
 #     items_out.write(item)
 
-    def fold(self, items):
-        return fold(items, self.store)
+    def fold(self, items, fold_size=2**22):
+        page = list()
+        page_size = 0
+        for item in items:
+            part = encode_item_text(item).encode()
+            if len(part) + page_size > fold_size:
+                yield self._save_fold(page)
+                page.clear()
+                page_size = 0
+            page.append(item)
+            page_size += len(part)
+        if page:
+            yield self._save_fold(page)
+
+        return
+    
+    
+    def _save_fold(self, items):
+        items = sorted(items, key=_item_sort_key)
+        return FoldItem(
+            type='fold',
+            content=[ self._put_chunk(encode_items_bytes(items)) ],
+            count=len(items),
+            name_min=items[0].name,
+            name_max=items[-1].name,
+        )
+
 
     def unfold(self, items):
-        return unfold(items, self.store)
+        work = deque(sorted(items, key=_item_sort_key))
+        while work:
+            item = work.popleft()
+            if item.type == 'fold':
+                for chunk in self.get_chunks(item):
+                    lines = chunk.decode().splitlines()
+                    work.extend(decode_item_stream(lines))
+                work = deque(sorted(work, key=_item_sort_key))
+            else:
+                yield item
+        return
 
 #     get -- read item into memory
 #     get_file -- read item into file
 #     get_stream -- read item into stream
 #     get_chunks -- a generator of the chunks
 
+    def get_file(self, item, out_base=None):
+        # clean up the path: make relative, remove '.' and '..'
+        if out_base is None:
+            name = Path(item.name)
+        else:
+            name = Path(out_base) / item.name
+
+        if item.type == 'dir':
+            name.mkdir(parents=True, exist_ok=True)
+
+        if item.type == 'file':
+            with open(name, 'wb') as f:
+                for chunk in self.get_chunks(item):
+                    f.write(chunk)
+
+
     def get_chunks(self, item):
-        return load_content(item, self.store)
+        for part in item.content:
+            yield self.get_chunk(part)
     
+    def get_chunk(self, part):
+        blob = self.store.load(part.data)
+        key = bytes.fromhex(part.key)
+        blob = _decrypt_blob(blob=blob, lock=part.lock, key=key)
+        blob = _decompress_blob(blob)
+        data = _parse_blob(blob)
+        return data
+
 #     put -- store item from memory
 #     put_file - store item from file
 #     put_stream - store item from stream
 
-    def put_file(self, file_name):
-        return save_file(file_name, self.store)
+    def put_file(self, path):
+        path = Path(path)
+        item = get_file_info(path)
+        if item.type == 'file':
+            with path.open('rb') as f:
+                item.update(self.put_stream(f))
+        return item
 
-    def put_stream(self, stream):
-        return save_stream(stream, self.store)
+    def put_stream(self, stream, chunk_size=2**24, lock='aes256ctr'):
+        content = list()
+        h = sha256()
+        size = 0
+        
+        for chunk in iter(partial(stream.read, chunk_size), b''):
+            h.update(chunk)
+            size += len(chunk)
+            c = self._put_chunk(chunk, lock)
+            content.append(c)
+
+        return FileItem(
+            content=content,
+            sha256=h.hexdigest(),
+            size=size,
+        )
+    
+    def _put_chunk(self, chunk, lock='aes256ctr'):
+        blob = _format_blob(chunk)
+        blob = _compress_blob(blob)
+        key = sha256(blob)
+        blob = _encrypt_blob(blob, lock=lock, key=key.digest())
+        data = self.store.save(blob)
+        return Chunk(
+            size=len(chunk),
+            sha256=sha256(chunk).hexdigest(),
+            lock=lock,
+            key=key.hexdigest(),
+            data=data,
+        )
     
 #     FileItem
 #     FoldItem
 #     Content
 
 
-def connect(path=None):
-    '''
-    connect to a workspace.
+class ToteWriter:
+    def __init__(self, fd=sys.stdout):
+        self.fd = fd
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    def write(self, item):
+        self.fd.write(encode_item_text(item))
+    def writeall(self, items):
+        for item in items:
+            self.fd.write(encode_item_text(item))
+
+
+def _compress_blob(data):
+    out = b'zlib\n' + zlib.compress(data, 9)
+    if len(out) < len(data):
+        return out    
+    else:
+        return data
+
     
-    The workspace is the folder that has the .tote folder in it.
-    
-    The repository is the .tote folder in the workspace.
-    '''
-    path = _find_workdir(path)
-
-    return _ToteConnection(
-        workdir_path=path
-    )
+def _decompress_blob(blob):
+    if not blob.startswith(b'zlib\n'):
+        return blob
+    return zlib.decompress(blob[5:])
 
 
-from .store import FileStore
+def _format_blob(data):
+    return b'blob\n' + data
+
+def _parse_blob(blob):
+    """unwrap a blob, raise TypeError if it is not a blob."""
+    if not blob.startswith(b'blob\n'):
+        raise TypeError('not a blob')
+    return blob[5:]
 
 
-def timestamp(secs=None, safe=False):
-    import time
-    
-    t = time.gmtime(secs)
+def _encrypt_blob(data, lock, key):
+    if lock == 'aes256ctr':
+        c = Counter.new(nbits=128)
+        alg = AES.new(key, mode=AES.MODE_CTR, counter=c)
+    else:
+        raise TypeError('unknown lock type', lock)
+    return _format_blob(alg.encrypt(data))
+
+
+def _decrypt_blob(blob, lock, key):
+    if lock == 'aes256ctr':
+        ctr = Counter.new(nbits=128)
+        alg = AES.new(key, mode=AES.MODE_CTR, counter=ctr)
+    else:
+        raise TypeError('unknown lock type: ', lock)
+    data = _parse_blob(blob)
+    return alg.decrypt(data)
+
+
+def _item_sort_key(item):
+    if item.type == 'fold':
+        return item.name_min
+    return item.name
+
+
+def format_timestamp(secs=None, safe=False):
+    if secs == None:
+        t = datetime.utcnow()
+    else:
+        t = datetime.utcfromtimestamp(secs)
     
     if safe:
-        return time.strftime('%Y-%m-%dT%H-%M-%SZ', t)
+        return t.strftime('%Y-%m-%dT%H-%M-%S.%fZ')
     
-    return time.strftime('%Y-%m-%dT%H:%M:%SZ', t)
-
-
-from pathlib import Path, PurePosixPath
-from datetime import datetime
-from dataclasses import dataclass, field
+    return t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 
 @dataclass
@@ -247,6 +340,15 @@ class FileItem:
     content: list = None
     sha256: str = None
     target: str = None
+    error: str = None
+
+    def update(self, item):
+        for field in (
+            'name', 'type', 'mtime', 'size', 'content', 'sha256', 'target', 'error'
+        ):
+            value = getattr(item, field, None)
+            if value is not None:
+                setattr(self, field, value)
 
 
 @dataclass
@@ -256,6 +358,19 @@ class FoldItem:
     type: str = None
     content: list = None
     count: int = None
+
+
+def decode_item_stream(stream):
+    """
+    text -> obj iterable
+    """
+    for key, group in groupby(stream, key=lambda l: l.rstrip() == '---'):
+        if not key:
+            body = ''.join(group)
+            item = json.loads(body)
+            if not 'type' in item:
+                item['type'] = 'stream'
+            yield decode_item(item)
 
 
 def decode_item(obj):
@@ -301,6 +416,7 @@ def _decode_file_item(obj):
         'content': _decode_content,
         'sha256': _decode_str,
         'target': _decode_str,
+        'error': _decode_str,
     }
     kwargs = { field: func(obj.get(field, None)) for field, func in fields.items() }
     return FileItem(**kwargs)
@@ -313,16 +429,20 @@ def _decode_content(content):
 
 
 def _decode_chunk(obj):
-    return Chunk(
-        size=_decode_int(obj.get('size')),
-        sha256=obj.get('sha256'),
-        lock=obj.get('lock'),
-        key=obj.get('key'),
-        data=obj.get('data'),
-    )
+    fields = {
+        'size': _decode_int,
+        'sha256': _decode_str,
+        'lock': _decode_str,
+        'key': _decode_str,
+        'data': _decode_str,
+    }
+    kwargs = { field: func(obj.get(field, None)) for field, func in fields.items() }
+    return Chunk(**kwargs)
 
 
 def _decode_name(name):
+    if name is None:
+        return None
     path = PurePosixPath(name)
     if path.is_absolute():
         path = path.relative_to(path.root)
@@ -334,6 +454,299 @@ def _decode_timestamp(timestamp):
     if timestamp is None:
         return None
 
+    try:
+        return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ')
+    except ValueError:
+        pass
+    
     return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
 
+def encode_items_bytes(items):
+    return b''.join(encode_item_text(item).encode() for item in items)
 
+
+def encode_item_text(item):
+    body = json.dumps(item, default=encode_item, indent=4)
+    return f'---\n{body}\n'
+
+
+def encode_item(item):
+    _encoders = (
+        (FileItem, _encode_file_item),
+        (FoldItem, _encode_fold_item),
+        (Chunk, _encode_chunk),
+        (datetime, _encode_timestamp),
+        (PurePosixPath, _encode_name),
+    )
+    
+    for t, func in _encoders:
+        if isinstance(item, t):
+            return func(item)
+
+    raise ValueError(type(item), item)
+
+    
+def _encode_file_item(item):
+    out = {}
+    for field in (
+        'name', 'type', 'mtime', 'size', 'content', 'sha256', 'target', 'error'
+    ):
+        if getattr(item, field, None) is not None:
+            out[field] = getattr(item, field)
+    return out
+
+
+def _encode_fold_item(item):
+    out = {}
+    for field in ('name_min', 'name_max', 'type', 'content', 'count'):
+        if getattr(item, field, None) is not None:
+            out[field] = getattr(item, field)
+    return out
+
+
+def _encode_content(content):
+    return [ _encode_chunk(chunk) for chunk in content ]
+
+
+def _encode_timestamp(timestamp):
+    return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+def _encode_chunk(chunk):
+    out = {}
+    for field in ('size', 'sha256', 'lock', 'key', 'data'):
+        if getattr(chunk, field, None) is not None:
+            out[field] = getattr(chunk, field)
+    return out
+
+
+def _encode_name(name):
+    return name.as_posix()
+
+
+from heapq import heappop, heapify, heappush
+
+class PathQueue:
+    '''
+    A priority queue of paths, the paths are returned in min-order, duplicate entries are collapsed.
+    '''
+    def __init__(self, paths=None):
+        self.heap = []
+        if paths:
+            self.heap.extend(paths)
+            heapify(self.heap)
+
+    def __next__(self):
+        try:
+            return self.pop()
+        except IndexError:
+            raise StopIteration()
+    
+    def __iter__(self):
+        return self
+    
+    def pop(self):
+        out = heappop(self.heap)
+        while self.heap and self.heap[0] == out:
+            heappop(self.heap)
+        return out
+        
+    def add(self, path):
+        heappush(self.heap, path)
+    
+    def update(self, paths):
+        self.heap.extend(paths)
+        heapify(self.heap)
+    
+
+from dataclasses import dataclass, field
+from fnmatch import fnmatch
+
+
+@dataclass
+class _Ignore_Rule:
+    invert: bool = False
+    anchored: bool = False
+    pattern: tuple = ()
+
+    def matches(self, path):
+        if self.anchored and len(self.pattern) != len(path.parts):
+            return None
+        
+        for a, b in zip(path.parts[-len(self.pattern):], self.pattern):
+            if not fnmatch(a, b):
+                return None
+        else:
+            if self.invert:
+                return False
+            else:
+                return True
+        
+        return None
+
+
+@dataclass
+class _Ignore_Rules:
+    rules: list = field(default_factory=list)
+    
+    def matches(self, path):
+        for rule in self.rules:
+            ignore = rule.matches(path)
+            if ignore is not None:
+                return ignore
+        else:
+            return None
+    
+    def append(self, rule):
+        self.rules.append(rule)
+
+
+def _load_ignore_rules(path):
+    rules = _Ignore_Rules()
+    
+    try:
+        with Path(path, '.toteignore').open('rt') as lines:
+            for line in lines:
+                rule = _Ignore_Rule()
+
+                line = line.rstrip()
+
+                if line.startswith('#'):
+                    continue
+                
+                if line.startswith('!'):
+                    rule.invert = True
+                    line = line[1:]
+
+                if line.startswith('/'):
+                    rule.anchored = True
+                    line = line[1:]
+
+                rule.pattern = tuple(i for i in line.split('/') if i != '.')
+                if not rule.pattern:
+                    continue
+
+                rules.append(rule)
+    except FileNotFoundError:
+        pass
+
+    return rules
+
+from functools import lru_cache
+
+@dataclass
+class _Ignore_Manager:
+    
+    # do not go above here, and raise an error if given a path to check outside here
+    base_path: Path = None
+    
+    def __post_init__(self):
+        self._rules_for = lru_cache()(_load_ignore_rules)
+        
+    def _check_rules(self, path):
+        check_path = path
+        check_name = Path()
+        
+        ignore = None
+        while ignore is None:
+            if check_path == self.base_path:
+                break # we hit the base
+            
+            # step up
+            last_path = check_path
+            check_path = last_path.parent
+            check_name = Path(last_path.name) / check_name
+
+            if check_path == last_path:
+                break # we hit the root
+            
+            ignore = self._rules_for(check_path).matches(check_name)
+        return ignore
+
+    def matches(self, path):
+        path = Path(path)
+        
+        if self.base_path is not None:
+            # check path is in base_path
+            path.relative_to(self.base_path)
+        
+        ignore = self._check_rules(path)
+        if ignore is not None:
+            return ignore
+        
+        if path.name == '.tote':
+            return True
+
+        return None
+
+
+def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
+    
+    def should_decend(path):
+        try:
+            return (
+                recurse and path.is_dir()
+                and not path.is_symlink() 
+                and not(one_filesystem and path.is_mount())
+            )
+        except OSError:
+            return False
+
+    ignore_rules = _Ignore_Manager(base_path=base_path)
+
+    pq = PathQueue([ Path(path) for path in paths ])
+
+    for path in pq:
+        if ignore_rules.matches(path):
+            continue
+        
+        if should_decend(path):
+            pq.update(path.iterdir())
+
+        yield path
+
+
+def list_tree(path, **kwargs):
+    return list_trees([path], **kwargs)
+
+
+def scan_trees(paths, relative_to=None, **kwargs):
+    for path in list_trees(paths, **kwargs):
+        item = get_file_info(path)
+        if relative_to is not None:
+            item.name = PurePosixPath(path.relative_to(relative_to))
+        yield item
+
+
+def get_file_info(path):
+    path = Path(path)
+    item = FileItem()
+    item.name = PurePosixPath(path)
+    
+    try:
+        st = path.lstat()
+        item.mtime = datetime.fromtimestamp(st.st_mtime)
+    except FileNotFoundError:
+        item.type = 'missing'
+        return item
+    
+    if path.is_symlink():
+        item.type = 'link'
+        item.target = os.readlink(path)
+        return item
+    
+    if path.is_dir():
+        item.type = 'dir'
+        return item
+    
+    if path.is_file():
+        item.type = 'file'
+        item.size = st.st_size
+        return item
+    
+    if path.exists():
+        irem.type = 'other'
+        return item
+    
+    item.type = 'missing'
+    return item

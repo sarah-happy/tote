@@ -12,44 +12,6 @@ import tote.store
 import tote.scan
 
 
-def is_workdir(path):
-    return isdir(join(path, '.tote'))
-
-
-def parents(path):
-    path = abspath(path)
-    parent = dirname(path)
-    while parent != path:
-        path = parent
-        yield path
-        parent = dirname(path)
-    return
-
-
-def find_workdir(path='.'):
-    path = Path(path)
-    if (path / '.tote').is_dir():
-        return path
-    for p in parents(path):
-        if is_workdir(p):
-            return p
-    raise FileNotFoundError("no .tote in current or parent folders")
-
-    
-def load_config(file):
-    c = configparser.ConfigParser()
-    c.read(file)
-    return c
-
-
-def attach(path=None):
-    if path is None:
-        path = find_workdir()
-    if is_workdir(path):
-        return WorkDir(path)
-    raise FileNotFoundError(join(path, '.tote'))
-
-    
 class WorkDir:
     def __init__(self, path):
         self.path = path
@@ -78,10 +40,6 @@ class WorkDir:
         return "[WorkDir: %s]" % (self.path)
 
     
-def get_ignore(conn):
-    return tote.scan.make_ignore(conn.workdir_path)
-    
-
 def most_recent_checkin(workdir):
     """
     find the most recent checkin for the workdir
@@ -89,15 +47,13 @@ def most_recent_checkin(workdir):
     returns a path to the list, or None
     """
     try:
-        l = os.listdir(join(workdir, '.tote', 'checkin', 'default'))
+        l = (workdir / '.tote' / 'checkin' / 'default').iterdir()
     except FileNotFoundError:
         return None
 
-    for name in sorted(l, reverse=True):
-        path = join(workdir, '.tote', 'checkin', 'default', name)
-        if os.path.getsize(path) == 0:
-            continue
-        return path
+    for path in sorted(l, reverse=True):
+        if path.name.endswith('.tote') and path.lstat().st_size:
+            return path
     return None
 
 
@@ -109,57 +65,69 @@ def read_most_recent_checkin(conn):
     if path is None:
         return tuple()
     
-    with conn.read_file(path, unfold=False) as items_in:
-        items = list(items_in)
-
-    return conn.unfold(items)
+    with conn.read_file(path, unfold=False) as items:
+        return conn.unfold(list(items))
 
 
 def checkin_status(conn):
     lista = read_most_recent_checkin(conn)
-    listb = tote.scan.scan_tree_relative(conn.workdir_path, ignore=get_ignore(conn), one_filesystem=True)
+    listb = tote.scan_trees(
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+    )
+    
     for a, b in tote.scan.merge_sorted(lista, listb):
         if a is None:
-            print('new', b['name'])
+            print('new', b.name)
             continue
         
         if b is None:
-            print('del', a['name'])
+            print('del', a.name)
             continue
         
         if a == b:
             continue
         
-        if b['type'] == 'file':
-            same = (
-                a.get(f, None) == b.get(f, None) 
+        if b.type == 'file':
+            changes = {
+                f 
                 for f in ('type', 'size', 'mtime')
-            )
-            if all(same):
+                if getattr(a, f, None) != getattr(b, f, None)
+            }
+            if not changes:
                 continue
         
-        print('update', b['name'])
+            print('changes', changes)
+            for f in changes:
+                print(f, getattr(a, f, None), getattr(b, f, None))
+
+        print('update', b.name)
 
 
 def checkin_save(conn):
     lista = read_most_recent_checkin(conn)
-    listb = tote.scan.scan_tree_relative(conn.workdir_path, ignore=get_ignore(conn), one_filesystem=True)
-    workdir_path = conn.workdir_path
+    listb = tote.scan_trees(
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+    )
+    
     for a, b in tote.scan.merge_sorted(lista, listb):
         if a is None:
-            print('new', b['name'])
-            path = workdir_path / b['name']
+            print('new', b.name)
+            path = conn.workdir_path / b.name
             if path.is_file():
                 try:
                     with open(path, 'rb') as file:
                         b.update(conn.put_stream(file))
                 except OSError as e:
-                    b['error'] = str(e)
+                    b.error = str(e)
             yield b
             continue
         
         if b is None:
-            print('del', a['name'])
+            print('del', a.name)
             continue
         
         # neigher a nor b are None
@@ -168,20 +136,26 @@ def checkin_save(conn):
             yield a
             continue
         
-        if b['type'] == 'file':
-            same = (
-                a.get(f, None) == b.get(f, None) 
+        if b.type == 'file':
+            changes = {
+                f 
                 for f in ('type', 'size', 'mtime')
-            )
-            if all(same):
+                if getattr(a, f, None) != getattr(b, f, None)
+            }
+            if not changes:
                 yield a
                 continue
-            path = workdir_path / b['name']
+        
+            print('changes', changes)
+            for f in changes:
+                print(f, getattr(a, f, None), getattr(b, f, None))
+
+            path = conn.workdir_path / b.name
             try:
                 with open(path, 'rb') as file:
                     b.update(conn.put_stream(file))
             except OSError as e:
-                b['error'] = str(e)
+                b.error = str(e)
 
-        print('update', b['name'])
+        print('update', b.name)
         yield b
