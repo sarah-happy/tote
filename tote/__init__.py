@@ -727,7 +727,12 @@ def list_tree(path, **kwargs):
 
 def scan_trees(paths, relative_to=None, **kwargs):
     for path in list_trees(paths, **kwargs):
-        item = get_file_info(path)
+        try:
+            item = get_file_info(path)
+        except OSError as e:
+            print(e)
+            continue
+        
         if relative_to is not None:
             item.name = PurePosixPath(path.relative_to(relative_to))
         yield item
