@@ -686,7 +686,11 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
         if not recurse:
             return False
         
-        if not path.is_dir():
+        try:
+            if not path.is_dir():
+                return False
+        except OSError as e:
+            print(e)
             return False
 
         try:
