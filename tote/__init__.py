@@ -683,14 +683,22 @@ class _Ignore_Manager:
 def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
     
     def should_decend(path):
-        try:
-            return (
-                recurse and path.is_dir()
-                and not path.is_symlink() 
-                and not(one_filesystem and path.is_mount())
-            )
-        except OSError:
+        if not recurse:
             return False
+        
+        if not path.is_dir():
+            return False
+
+        try:
+            if one_filesystem and path.is_mount():
+                return False
+        except NotImplementedError:
+            pass
+        
+        if path.is_symlink():
+            return False
+        
+        return True
 
     ignore_rules = _Ignore_Manager(base_path=base_path)
 
