@@ -709,7 +709,10 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
             continue
         
         if should_decend(path):
-            pq.update(path.iterdir())
+            try:
+                pq.update(path.iterdir())
+            except PremissionError as e:
+                print(e)
 
         yield path
 
