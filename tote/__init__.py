@@ -711,7 +711,7 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
         if should_decend(path):
             try:
                 pq.update(path.iterdir())
-            except PremissionError as e:
+            except PermissionError as e:
                 print(e)
 
         yield path
