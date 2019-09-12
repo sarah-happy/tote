@@ -1,11 +1,12 @@
 import os
 import os.path
 
-from hashlib import sha256
-from functools import partial
-from os.path import join, isdir, isfile
 from collections import OrderedDict
+from functools import partial
+from hashlib import sha256
+from os.path import isdir, isfile, join
 from pathlib import Path
+
 
 def bucket_path(base, name):
     bucket = ''
@@ -16,9 +17,11 @@ def bucket_path(base, name):
         path = join(path, part)
     return path
 
+
 def file_path(path, name, suffix=''):
     bucket = bucket_path(path, name)
     return join(bucket, name + suffix) 
+
 
 def save_blob(path, name, blob, suffix='', overwrite=False):
     bp = bucket_path(path, name)
@@ -32,21 +35,25 @@ def save_blob(path, name, blob, suffix='', overwrite=False):
             f.write(blob)
         os.rename(fn + '.part', fn)
 
+
 def load_blob(path, name, suffix=''):
     fn = file_path(path, name, suffix)
     with open(fn, 'rb') as f:
         return f.read()
+
     
 def save_chunk(store, chunk, **kwargs):
     name = sha256(chunk).hexdigest()
     store.save_blob(name, chunk, **kwargs)
     return name
 
+
 def attach(path):
     '''
     Attach to the blob store for the given repository
     '''
     return Store(path)
+
 
 class FileStore:
     def __init__(self, path):
@@ -75,5 +82,3 @@ class FileStore:
         return "[Store: %s]"%(self.path)
     
     pass
-
-Store = FileStore

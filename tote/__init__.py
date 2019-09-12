@@ -1,26 +1,24 @@
+import configparser
 import sys
 import json
 import os
 import time
-
-from itertools import groupby
-from collections import deque
-
-from contextlib import contextmanager
-from hashlib import sha256
-from functools import partial
-
-from os.path import expanduser, expandvars
-
-from pathlib import Path, PurePosixPath
-from datetime import datetime
-from dataclasses import dataclass, field
-from pathlib import Path
-from itertools import chain
-import configparser
 import zlib
+
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
+from datetime import datetime
+from dataclasses import dataclass, field
+from fnmatch import fnmatch
+from functools import lru_cache
+from hashlib import sha256
+from heapq import heapify, heappop, heappush
+from itertools import chain, groupby
+from collections import deque
+from contextlib import contextmanager
+from functools import partial
+from os.path import expanduser, expandvars
+from pathlib import Path, PurePosixPath
 
 from .store import FileStore
 
@@ -228,6 +226,7 @@ class _ToteConnection:
             size=size,
         )
     
+    
     def _put_chunk(self, chunk, lock='aes256ctr'):
         blob = _format_blob(chunk)
         blob = _compress_blob(blob)
@@ -242,9 +241,35 @@ class _ToteConnection:
             data=data,
         )
     
-#     FileItem
-#     FoldItem
-#     Content
+    
+    def _most_recent_checkin(self):
+        """
+        find the most recent checkin for the workdir
+
+        returns a path to the list, or None
+        """
+        try:
+            l = (self.tote_path / 'checkin' / 'default').iterdir()
+            paths = sorted(l, reverse=True)
+        except FileNotFoundError:
+            return None
+
+        for path in paths:
+            if path.name.endswith('.tote') and path.lstat().st_size:
+                return path
+        return None
+
+
+    def _load_most_recent_checkin(self):
+        """
+        yield item objects from most recent checkin sorted by path parts
+        """
+        path = self._most_recent_checkin()
+        if path is None:
+            return tuple()
+
+        with self.read_file(path, unfold=False) as items:
+            return self.unfold(list(items))
 
 
 class ToteWriter:
@@ -258,7 +283,7 @@ class ToteWriter:
         self.fd.write(encode_item_text(item))
     def writeall(self, items):
         for item in items:
-            self.fd.write(encode_item_text(item))
+            self.write(item)
 
 
 def _compress_blob(data):
@@ -524,7 +549,6 @@ def _encode_name(name):
     return name.as_posix()
 
 
-from heapq import heappop, heapify, heappush
 
 class PathQueue:
     '''
@@ -559,8 +583,6 @@ class PathQueue:
         heapify(self.heap)
     
 
-from dataclasses import dataclass, field
-from fnmatch import fnmatch
 
 
 @dataclass
@@ -632,7 +654,6 @@ def _load_ignore_rules(path):
 
     return rules
 
-from functools import lru_cache
 
 @dataclass
 class _Ignore_Manager:
@@ -770,3 +791,135 @@ def get_file_info(path):
     
     item.type = 'missing'
     return item
+
+
+def checkin_status(conn):
+    lista = conn._load_most_recent_checkin()
+    listb = scan_trees(
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+    )
+    
+    for a, b in merge_sorted(lista, listb):
+        if a is None:
+            print('new', b.name)
+            continue
+        
+        if b is None:
+            print('del', a.name)
+            continue
+        
+        if a == b:
+            continue
+        
+        if b.type == 'file':
+            changes = {
+                f 
+                for f in ('type', 'size', 'mtime')
+                if getattr(a, f, None) != getattr(b, f, None)
+            }
+            if not changes:
+                continue
+        
+            print('changes', changes)
+            for f in changes:
+                print(f, getattr(a, f, None), getattr(b, f, None))
+
+        print('update', b.name)
+
+
+def checkin_save(conn):
+    lista = conn._load_most_recent_checkin()
+    listb = scan_trees(
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+    )
+    
+    for a, b in merge_sorted(lista, listb):
+        if a is None:
+            print('new', b.name)
+            path = conn.workdir_path / b.name
+            if path.is_file():
+                try:
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
+                except OSError as e:
+                    b.error = str(e)
+            yield b
+            continue
+        
+        if b is None:
+            print('del', a.name)
+            continue
+        
+        # neigher a nor b are None
+        
+        if a == b:
+            yield a
+            continue
+        
+        if b.type == 'file':
+            changes = {
+                f 
+                for f in ('type', 'size', 'mtime')
+                if getattr(a, f, None) != getattr(b, f, None)
+            }
+            if not changes:
+                yield a
+                continue
+        
+            print('changes', changes)
+            for f in changes:
+                print(f, getattr(a, f, None), getattr(b, f, None))
+
+            path = conn.workdir_path / b.name
+            try:
+                with open(path, 'rb') as file:
+                    b.update(conn.put_stream(file))
+            except OSError as e:
+                b.error = str(e)
+
+        print('update', b.name)
+        yield b
+
+
+def merge_sorted(a, b):
+    """
+    yields pairs (item object a, item object b) where the names match,
+    for unmatched names the item object is None.
+    if duplicate names exist, each item is only output once.
+    assumes the lists are sorted by path parts.
+    """
+    itera = iter(a)
+    iterb = iter(b)
+    
+    itema = next(itera, None)
+    itemb = next(iterb, None)
+    
+    while itema is not None and itemb is not None:
+        namea = itema.name
+        nameb = itemb.name
+        
+        if namea < nameb:
+            yield (itema, None)
+            itema = next(itera, None)
+            continue
+
+        if nameb < namea:
+            yield (None, itemb)
+            itemb = next(iterb, None)
+            continue
+
+        yield (itema, itemb)
+        itema = next(itera, None)
+        itemb = next(iterb, None)
+
+    while itema is not None:
+        yield (itema, None)
+        itema = next(itera, None)
+
+    while itemb is not None:
+        yield (None, itemb)
+        itemb = next(iterb, None)

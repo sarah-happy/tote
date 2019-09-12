@@ -8,7 +8,7 @@ base = abspath(join(dirname(file), '..'))
 
 sys.path.insert(0, base)
 import tote
-sys.path.remove(base)
+# sys.path.remove(base)
 
 import tote.main as m
 m.main()

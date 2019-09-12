@@ -1,8 +1,10 @@
-import sys
 import argparse
-import tote
+import sys
+import os
 
 from pathlib import Path
+
+import tote
 
 
 def cmd_blob_cat(args):
@@ -19,8 +21,6 @@ def cmd_show_workdir(args):
     
 
 def cmd_put(args):
-    from pathlib import Path
-    
     conn = tote.connect()
 
     out = conn.write_stream(sys.stdout)
@@ -52,8 +52,7 @@ def cmd_cat(args):
 
 def cmd_scan(args):
     paths = [ Path(path) for path in args.path ]
-    items = tote.scan_trees(paths)
-    for item in items:
+    for item in tote.scan_trees(paths):
         print(item)
     
     
@@ -119,7 +118,6 @@ def cmd_refold(args):
     with conn.append_file(arc + '.history') as items_out:
         items_out.write(conn.put_file(arc))
 
-    import os
     os.rename(arc + '.part', arc)
 
 
@@ -144,23 +142,19 @@ def cmd_unfold(args):
     with conn.append_file(arc + '.history') as items_out:
         items_out.write(conn.put_file(arc))
 
-    import os
     os.rename(arc + '.part', arc)
 
     
 def cmd_status(args):
     conn = tote.connect()
     
-    from tote.workdir import checkin_status
-    checkin_status(conn)
+    tote.checkin_status(conn)
 
     
 def cmd_checkin(args):
-    from tote.workdir import checkin_save
-
     conn = tote.connect()
     
-    update = checkin_save(conn)
+    update = tote.checkin_save(conn)
     
     folds = conn.fold(update)
 
@@ -178,9 +172,6 @@ def cmd_checkin(args):
 
 
 def cmd_add(args):
-    from tote.scan import scan_trees, merge_sorted
-    from pathlib import Path, PurePosixPath
-    
     arc = Path(args.tote)
     paths = args.file
 
@@ -207,8 +198,8 @@ def cmd_add(args):
     except FileNotFoundError:
         items_in = []
     items_in = conn.unfold(items_in)
-    b = map(tote.decode_item, scan_trees(paths))
-    m = merge_sorted(items_in, b)
+    b = tote.scan_trees(paths)
+    m = tote.merge_sorted(items_in, b)
 
     o = do_add(m, conn)
 
