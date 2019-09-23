@@ -62,7 +62,7 @@ def _find_workdir(path=None):
 
 def _load_config(config_path):
     c = configparser.ConfigParser()
-    c.read(config_path)
+    c.read([ config_path ])
     return c
 
         
