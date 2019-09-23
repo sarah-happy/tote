@@ -786,7 +786,7 @@ def get_file_info(path):
         return item
     
     if path.exists():
-        irem.type = 'other'
+        item.type = 'other'
         return item
     
     item.type = 'missing'
