@@ -17,7 +17,7 @@ from itertools import chain, groupby
 from collections import deque
 from contextlib import contextmanager
 from functools import partial
-from os.path import expanduser, expandvars
+from os.path import expanduser, expandvars, ismount
 from pathlib import Path, PurePosixPath
 
 from .store import FileStore
@@ -715,7 +715,7 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
             return False
 
         try:
-            if one_filesystem and path.is_mount():
+            if one_filesystem and ismount(path):
                 return False
         except NotImplementedError:
             pass
