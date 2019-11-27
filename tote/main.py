@@ -231,7 +231,16 @@ def cmd_extract(args):
             print(item.name)
             conn.get_file(item, out_base=to)
 
-
+def cmd_import_blobs(args):
+    conn = tote.connect()
+    for f in args.file:
+        print(f, '...')
+        p = Path(f)
+        with open(p, 'rb') as i:
+            b = i.read()
+        conn.store.save(b)
+    
+    
 def main(argv=None):
     p = argparse.ArgumentParser(prog='tote')
     s = p.add_subparsers()
@@ -312,6 +321,11 @@ def main(argv=None):
     c.add_argument('--to')
     c.set_defaults(func=cmd_extract)
 
+    c = s.add_parser('import-blobs', help='import a directory of blobs')
+    c.add_argument('file', nargs='+', help='file to import')
+#     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
+    c.set_defaults(func=cmd_import_blobs)
+    
     args = p.parse_args(argv)
     if 'func' not in args:
         p.print_usage()
