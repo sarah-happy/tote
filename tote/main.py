@@ -79,8 +79,12 @@ def cmd_list(args):
     files = args.file
     
     conn = tote.connect(arc)
-    with conn.read_file(arc) as f:
-        for item in f:
+    with conn.read_file(arc) as items:
+        
+        if files:
+            items = tote._filter_items_by_names(items, files)
+        
+        for item in items:
             print(item.type, item.size, item.name)
             
             

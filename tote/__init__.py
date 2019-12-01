@@ -923,3 +923,29 @@ def merge_sorted(a, b):
     while itemb is not None:
         yield (None, itemb)
         itemb = next(iterb, None)
+
+
+def _filter_items_by_names(items, patterns):
+    """
+    Return a generator of items with names that start with any of patterns.
+    """
+    
+    def make_filter(pattern):
+        pattern_path = PurePosixPath(pattern)
+        pattern_parts = pattern_path.parts
+        def filter_func(item):
+            name_parts = item.name.parts
+            if len(name_parts) < len(pattern_parts):
+                return False
+            for a, b in zip(name_parts, pattern_parts):
+                if not fnmatch(a, b):
+                    return False
+            return True
+        return filter_func
+    
+    filters = [ make_filter(name) for name in patterns ]
+    
+    for item in items:
+        matched = any(f(item) for f in filters)
+        if matched:
+            yield item
