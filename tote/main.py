@@ -222,15 +222,14 @@ def cmd_add(args):
 def cmd_extract(args):
     '''extract files from archive'''
     arc = args.tote
-    members = args.file
+    files = args.file
     to = args.to
-
-    if members:
-        print('not implemented')
-        return
 
     conn = tote.connect(arc)
     with conn.read_file(arc) as items_in:
+        if files:
+            items_in = tote._filter_items_by_names(items_in, files)
+
         for item in items_in:
             print(item.name)
             conn.get_file(item, out_base=to)
