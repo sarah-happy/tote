@@ -19,10 +19,8 @@ sudo apt install git
 Python 3
 
 ```
-sudo apt install python3
+sudo apt install python3 python3-pip
 ```
-
-There may be more that I am missing right now.
 
 ### Installing
 
@@ -34,6 +32,13 @@ Clone the git repository.
 git clone https://github.com/sarah-happy/tote.git
 ```
 
+install required modules
+```
+# all the dependencies got installed with python3-pip
+```
+
+
+
 Adapt tote/tote.sh into a launch script and put it in your path
 
 `$HOME/bin/tote`:
@@ -41,7 +46,7 @@ Adapt tote/tote.sh into a launch script and put it in your path
 ```
 #!/bin/sh
 export PYTHONPATH="$HOME/tote:$PYTHONPATH"
-python3 -m tote "$@"
+exec python3 -m tote "$@"
 ```
 
 ```
@@ -52,7 +57,10 @@ End with an example of getting some data out of the system or using it for a lit
 
 ```
 tote init
-
+echo "the quick brown fox jumpted over the lazy dog" > tote-test.txt
+tote add tote-test.tote tote-test.txt
+tote list tote-test.tote
+tote cat tote-test.tote tote-text.txt
 ```
 
 ## Running the tests
