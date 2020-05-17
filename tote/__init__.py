@@ -804,11 +804,11 @@ def checkin_status(conn):
     
     for a, b in merge_sorted(lista, listb):
         if a is None:
-            print('new', b.name)
+            print('a', b.name)
             continue
         
         if b is None:
-            print('del', a.name)
+            print('d', a.name)
             continue
         
         if a == b:
@@ -827,7 +827,8 @@ def checkin_status(conn):
 #             for f in changes:
 #                 print(f, getattr(a, f, None), getattr(b, f, None))
 
-        print('update', b.name, changes)
+        if changes:
+            print('u', b.name, changes)
 
 
 def checkin_save(conn):
@@ -840,7 +841,7 @@ def checkin_save(conn):
     
     for a, b in merge_sorted(lista, listb):
         if a is None:
-            print('new', b.name)
+            print('a', b.name)
             path = conn.workdir_path / b.name
             if path.is_file():
                 try:
@@ -852,7 +853,7 @@ def checkin_save(conn):
             continue
         
         if b is None:
-            print('del', a.name)
+            print('d', a.name)
             continue
         
         # neigher a nor b are None
@@ -882,7 +883,8 @@ def checkin_save(conn):
             except OSError as e:
                 b.error = str(e)
 
-        print('update', b.name, changes)
+        if changes:
+            print('u', b.name, changes)
         yield b
 
 
