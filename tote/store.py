@@ -24,6 +24,8 @@ def file_path(path, name, suffix=''):
 
 
 def save_blob(path, name, blob, suffix='', overwrite=False):
+    if not isdir(path):
+        raise ValueError("path does not exist", path)
     bp = bucket_path(path, name)
     if not isdir(bp):
         os.makedirs(bp)
