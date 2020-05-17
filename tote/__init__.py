@@ -702,7 +702,8 @@ class _Ignore_Manager:
 
 
 def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
-    
+    paths = [ Path(path) for path in paths ]
+
     def should_decend(path):
         if not recurse:
             return False
@@ -715,7 +716,7 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
             return False
 
         try:
-            if one_filesystem and ismount(path):
+            if one_filesystem and ismount(path) and path not in paths:
                 return False
         except NotImplementedError:
             pass
@@ -726,8 +727,8 @@ def list_trees(paths, recurse=True, one_filesystem=True, base_path=None):
         return True
 
     ignore_rules = _Ignore_Manager(base_path=base_path)
-
-    pq = PathQueue([ Path(path) for path in paths ])
+    
+    pq = PathQueue(paths)
 
     for path in pq:
         if ignore_rules.matches(path):
@@ -822,11 +823,11 @@ def checkin_status(conn):
             if not changes:
                 continue
         
-            print('changes', changes)
-            for f in changes:
-                print(f, getattr(a, f, None), getattr(b, f, None))
+#             print('changes', changes)
+#             for f in changes:
+#                 print(f, getattr(a, f, None), getattr(b, f, None))
 
-        print('update', b.name)
+        print('update', b.name, changes)
 
 
 def checkin_save(conn):
