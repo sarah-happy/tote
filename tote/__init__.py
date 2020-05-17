@@ -871,9 +871,9 @@ def checkin_save(conn):
                 yield a
                 continue
         
-            print('changes', changes)
-            for f in changes:
-                print(f, getattr(a, f, None), getattr(b, f, None))
+#             print('changes', changes)
+#             for f in changes:
+#                 print(f, getattr(a, f, None), getattr(b, f, None))
 
             path = conn.workdir_path / b.name
             try:
@@ -882,7 +882,7 @@ def checkin_save(conn):
             except OSError as e:
                 b.error = str(e)
 
-        print('update', b.name)
+        print('update', b.name, changes)
         yield b
 
 
