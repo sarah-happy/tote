@@ -79,6 +79,8 @@ class _ToteConnection:
             store_path = expandvars(store_path)
             store_path = expanduser(store_path)
             store_path = Path(store_path)
+            if not store_path.is_absolute():
+                store_path = workdir_path / store_path
         else:
             store_path = workdir_path / '.tote'
         
@@ -814,6 +816,8 @@ def checkin_status(conn):
         if a == b:
             continue
         
+        changes = set()
+        
         if b.type == 'file':
             changes = {
                 f 
@@ -862,6 +866,8 @@ def checkin_save(conn):
             yield a
             continue
         
+        changes = set()
+        
         if b.type == 'file':
             changes = {
                 f 
@@ -885,6 +891,7 @@ def checkin_save(conn):
 
         if changes:
             print('u', b.name, changes)
+        
         yield b
 
 
