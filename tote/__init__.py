@@ -476,11 +476,9 @@ def _decode_name(name):
     parts = [ i for i in path.parts if i not in ('.', '..') ]
     return PurePosixPath(*parts)
 
+
 def _encode_timestamp(timestamp):
     return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%f%z')
-
-
-
 
 
 def _decode_timestamp(timestamp):
@@ -562,7 +560,7 @@ def _encode_name(name):
 
 class PathQueue:
     '''
-    A priority queue of paths, the paths are returned in min-order, duplicate entries are collapsed.
+    A priority queue of paths, the paths are returned in min-order, equal entries are collapsed.
     '''
     def __init__(self, paths=None):
         self.heap = []
