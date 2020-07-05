@@ -7,14 +7,14 @@ import zlib
 
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from functools import lru_cache
 from hashlib import sha256
 from heapq import heapify, heappop, heappush
 from itertools import chain, groupby
-from collections import deque
+from collections import deque, namedtuple
 from contextlib import contextmanager
 from functools import partial
 from os.path import expanduser, expandvars, ismount
@@ -339,14 +339,14 @@ def _item_sort_key(item):
 
 def format_timestamp(secs=None, safe=False):
     if secs == None:
-        t = datetime.utcnow()
+        t = datetime.now()
     else:
-        t = datetime.utcfromtimestamp(secs)
+        t = datetime.fromtimestamp(secs, tz=timezone.utc)
     
     if safe:
-        return t.strftime('%Y-%m-%dT%H-%M-%S.%fZ')
+        return t.strftime('%Y-%m-%dT%H-%M-%S.%f%z')
     
-    return t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    return t.strftime('%Y-%m-%dT%H:%M:%S.%f%z')
 
 
 @dataclass
@@ -486,7 +486,13 @@ def _decode_timestamp(timestamp):
     except ValueError:
         pass
     
-    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
+    try:
+        return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
+    except ValueError:
+        pass
+
+    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%f%z')
+
 
 def encode_items_bytes(items):
     return b''.join(encode_item_text(item).encode() for item in items)
@@ -536,7 +542,7 @@ def _encode_content(content):
 
 
 def _encode_timestamp(timestamp):
-    return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ')
+    return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%f%z')
 
 
 def _encode_chunk(chunk):
@@ -769,7 +775,7 @@ def get_file_info(path):
     
     try:
         st = path.lstat()
-        item.mtime = datetime.fromtimestamp(st.st_mtime)
+        item.mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
     except FileNotFoundError:
         item.type = 'missing'
         return item
@@ -959,3 +965,20 @@ def _filter_items_by_names(items, patterns):
         matched = any(f(item) for f in filters)
         if matched:
             yield item
+
+            
+def encode_chunk(chunk, lock='aes256ctr'):
+    blob = _format_blob(chunk)
+    blob = _compress_blob(blob)
+    key = sha256(blob)
+    blob = _encrypt_blob(blob, lock=lock, key=key.digest())
+    
+    BlobInfo = namedtuple('BlobInfo', ['data', 'size', 'sha256', 'lock', 'key', 'blob'])
+    return BlobInfo(
+        data=sha256(blob).hexdigest(),
+        size=len(chunk),
+        sha256=sha256(chunk).hexdigest(),
+        lock=lock,
+        key=key.hexdigest(),
+        blob=blob,
+   )
