@@ -476,6 +476,12 @@ def _decode_name(name):
     parts = [ i for i in path.parts if i not in ('.', '..') ]
     return PurePosixPath(*parts)
 
+def _encode_timestamp(timestamp):
+    return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%f%z')
+
+
+
+
 
 def _decode_timestamp(timestamp):
     if timestamp is None:
@@ -539,10 +545,6 @@ def _encode_fold_item(item):
 
 def _encode_content(content):
     return [ _encode_chunk(chunk) for chunk in content ]
-
-
-def _encode_timestamp(timestamp):
-    return datetime.strftime(timestamp, '%Y-%m-%dT%H:%M:%S.%f%z')
 
 
 def _encode_chunk(chunk):
