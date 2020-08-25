@@ -61,26 +61,58 @@ class FileStore:
     def __init__(self, path):
         self.path = Path(path)
     
-    def save_blob(self, *args, **kwargs):
+    def save_blob(self, name, blob, *args, **kwargs):
         base = join(self.path, 'blobs')
-        save_blob(base, *args, **kwargs)
-    
-    save = save_chunk
-    
-    def load_blob(self, *args, **kwargs):
+        save_blob(base, name, blob, *args, **kwargs)
+
+    def save(store, blob, **kwargs):
+        name = sha256(blob).hexdigest()
+        store.save_blob(name, blob, **kwargs)
+        return name
+        
+    def load_blob(self, name, *args, **kwargs):
         base = join(self.path, 'blobs')
-        return load_blob(base, *args, **kwargs)
+        return load_blob(base, name, *args, **kwargs)
     
-    def getsize(self, *args, **kwargs):
+    def getsize(self, name, *args, **kwargs):
         base = join(self.path, 'blobs')
-        fn = file_path(base, *args, **kwargs)
+        fn = file_path(base, name, *args, **kwargs)
         return os.path.getsize(fn)
        
-    def load(self, *args, **kwargs):
+    def load(self, name, *args, **kwargs):
         base = join(self.path, 'blobs')
-        return load_blob(base, *args, **kwargs)
+        return load_blob(base, name, *args, **kwargs)
         
     def __repr__(self):
         return "[Store: %s]"%(self.path)
     
     pass
+
+
+import requests
+
+class UrlStore:
+    def __init__(self, url, auth):
+        self.url = url
+        self.auth = auth
+        
+    def load(self, name):
+        resp = requests.get(self.url + name, auth=self.auth)
+        if resp.status_code != 200:
+            raise IOError(resp)
+
+        return resp.content
+    
+    def save(self, blob):
+        name = sha256(blob).hexdigest()
+        
+        resp = requests.head(self.url + name, auth=self.auth)
+        if resp.status_code == 200:
+            return name
+                
+        headers = { 'content-type': 'application/octet-stream' }
+        resp = requests.put(self.url + name, data=blob, headers=headers, auth=self.auth)
+        if resp.status_code != 200:
+            raise IOError(resp)
+        
+        return name

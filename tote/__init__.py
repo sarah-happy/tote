@@ -20,7 +20,7 @@ from functools import partial
 from os.path import expanduser, expandvars, ismount
 from pathlib import Path, PurePosixPath
 
-from .store import FileStore
+from .store import FileStore, UrlStore 
 
 
 def connect(path=None):
@@ -86,7 +86,18 @@ class _ToteConnection:
         
         self.store_path = store_path
         self.store = FileStore(self.store_path)
-    
+
+        store_url = self.config.get('store', 'url', fallback=None)
+        if store_url is not None:
+            store_username = self.config.get('store', 'username', fallback=None)
+            if store_username is not None:
+                store_password = self.config.get('store', 'password', fallback=None)
+                store_auth = (store_username, store_password)
+            else:
+                store_auth = None
+            
+            self.store = UrlStore(url=store_url, auth=store_auth)
+        
     @contextmanager
     def read_file(self, file_name, unfold=True):
         with open(file_name, 'rt') as f:
