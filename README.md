@@ -32,27 +32,9 @@ Clone the git repository.
 git clone https://github.com/sarah-happy/tote.git
 ```
 
-install required modules
-```
-# all the dependencies got installed with python3-pip
-```
-
-install this with a symlink so that code changes are immediately available
+install this editable a symlink so that code changes are immediately available
 ```
 pip3 install -e .
-```
-
-Adapt tote/tote.sh into a launch script and put it in your path
-
-`$HOME/bin/tote`:
-
-```
-#!/bin/sh
-exec python3 -m tote "$@"
-```
-
-```
-chmod +x $HOME/bin/tote
 ```
 
 End with an example of getting some data out of the system or using it for a little demo
