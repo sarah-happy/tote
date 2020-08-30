@@ -37,7 +37,10 @@ install required modules
 # all the dependencies got installed with python3-pip
 ```
 
-
+install this with a symlink so that code changes are immediately available
+```
+pip3 install -e .
+```
 
 Adapt tote/tote.sh into a launch script and put it in your path
 
@@ -45,7 +48,6 @@ Adapt tote/tote.sh into a launch script and put it in your path
 
 ```
 #!/bin/sh
-export PYTHONPATH="$HOME/tote:$PYTHONPATH"
 exec python3 -m tote "$@"
 ```
 
