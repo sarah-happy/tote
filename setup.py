@@ -11,5 +11,8 @@ setup(
     packages=['tote'],
     zip_safe=False,
     scripts=['bin/tote'],
+    install_requires=[ 
+        'requests'
+    ]
 )
 
