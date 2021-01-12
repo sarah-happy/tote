@@ -185,7 +185,7 @@ def cmd_add(args):
                 yield a
                 continue
 
-            print('add' if a is None else 'update', b.name)
+            print('a' if a is None else 'u', b.name)
 
             path = Path(b.name)
             if path.is_file():
@@ -219,6 +219,84 @@ def cmd_add(args):
     arc_part.rename(target=arc)
 
 
+def cmd_refresh(args):
+    arc = Path(args.tote)
+    paths = args.file
+
+    def do_refresh(m, conn):
+        for a, b in m:
+            
+            if b is None:
+                print('d', a.name)
+#                 yield a
+                continue
+
+            if a is None:
+                print('a', b.name)
+                path = Path(b.name)
+                if path.is_file():
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
+
+                yield b
+                continue
+            
+            if a == b:
+                yield b
+                continue
+            
+            changes = set()
+
+            if b.type == 'file':
+                changes = {
+                    f 
+                    for f in ('type', 'size', 'mtime')
+                    if getattr(a, f, None) != getattr(b, f, None)
+                }
+                if not changes:
+                    yield a
+                    continue
+
+                path = Path(b.name)
+                try:
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
+                except OSError as e:
+                    b.error = str(e)
+
+            if changes:
+                print('u', b.name, changes)
+
+            yield b
+
+            
+
+    conn = tote.connect(arc)
+    
+    try:
+        with conn.read_file(arc, unfold=False) as f:
+            items_in = list(f)
+    except FileNotFoundError:
+        items_in = []
+    lista = conn.unfold(items_in)
+    listb = tote.scan_trees(paths)
+    m = tote.merge_sorted(lista, listb)
+
+    o = do_refresh(m, conn)
+
+    arc_part = arc.with_name(arc.name + '.part')
+    with conn.write_file(arc_part) as w:
+        w.writeall(conn.fold(o))
+
+    arc_history = arc.with_name(arc.name + '.history')
+    if arc.is_file():
+        with conn.append_file(arc_history) as w:
+            w.write(conn.put_file(arc))
+
+    arc_part.rename(target=arc)
+    
+    
+    
 def cmd_extract(args):
     '''extract files from archive'''
     arc = args.tote
@@ -315,9 +393,15 @@ def main(argv=None):
     c = s.add_parser('add', help='add and updates files in list')
     c.add_argument('tote')
     c.add_argument('file', nargs='+')
-    c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
+#     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
     c.set_defaults(func=cmd_add)
-    
+
+    c = s.add_parser('refresh', help='update to files in list')
+    c.add_argument('tote')
+    c.add_argument('file', nargs='+')
+#     c.add_argument('--recursive', action='store_true', help='recursively decend into directories')
+    c.set_defaults(func=cmd_refresh)
+
     c = s.add_parser('extract', help='extract files from archive')
     c.add_argument('tote')
     c.add_argument('file', nargs='*')
