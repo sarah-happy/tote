@@ -600,8 +600,6 @@ class PathQueue:
     def update(self, paths):
         self.heap.extend(paths)
         heapify(self.heap)
-    
-
 
 
 @dataclass
@@ -776,6 +774,7 @@ def scan_trees(paths, relative_to=None, **kwargs):
         
         if relative_to is not None:
             item.name = PurePosixPath(path.relative_to(relative_to))
+        
         yield item
 
 
@@ -813,106 +812,9 @@ def get_file_info(path):
     return item
 
 
-def checkin_status(conn):
-    lista = conn._load_most_recent_checkin()
-    listb = scan_trees(
-        paths=[conn.workdir_path], 
-        relative_to=conn.workdir_path,
-        base_path=conn.workdir_path,
-    )
-    
-    for a, b in merge_sorted(lista, listb):
-        if a is None:
-            print('a', b.name)
-            continue
-        
-        if b is None:
-            print('d', a.name)
-            continue
-        
-        if a == b:
-            continue
-        
-        changes = set()
-        
-        if b.type == 'file':
-            changes = {
-                f 
-                for f in ('type', 'size', 'mtime')
-                if getattr(a, f, None) != getattr(b, f, None)
-            }
-            if not changes:
-                continue
-        
-#             print('changes', changes)
-#             for f in changes:
-#                 print(f, getattr(a, f, None), getattr(b, f, None))
-
-        if changes:
-            print('u', b.name, changes)
 
 
-def checkin_save(conn):
-    lista = conn._load_most_recent_checkin()
-    listb = scan_trees(
-        paths=[conn.workdir_path], 
-        relative_to=conn.workdir_path,
-        base_path=conn.workdir_path,
-    )
-    
-    for a, b in merge_sorted(lista, listb):
-        if a is None:
-            print('a', b.name)
-            path = conn.workdir_path / b.name
-            if path.is_file():
-                try:
-                    with open(path, 'rb') as file:
-                        b.update(conn.put_stream(file))
-                except OSError as e:
-                    b.error = str(e)
-            yield b
-            continue
-        
-        if b is None:
-            print('d', a.name)
-            continue
-        
-        # neigher a nor b are None
-        
-        if a == b:
-            yield a
-            continue
-        
-        changes = set()
-        
-        if b.type == 'file':
-            changes = {
-                f 
-                for f in ('type', 'size', 'mtime')
-                if getattr(a, f, None) != getattr(b, f, None)
-            }
-            if not changes:
-                yield a
-                continue
-        
-#             print('changes', changes)
-#             for f in changes:
-#                 print(f, getattr(a, f, None), getattr(b, f, None))
-
-            path = conn.workdir_path / b.name
-            try:
-                with open(path, 'rb') as file:
-                    b.update(conn.put_stream(file))
-            except OSError as e:
-                b.error = str(e)
-
-        if changes:
-            print('u', b.name, changes)
-        
-        yield b
-
-
-def merge_sorted(a, b):
+def merge_sorted_name(a, b):
     """
     yields pairs (item object a, item object b) where the names match,
     for unmatched names the item object is None.
@@ -993,3 +895,179 @@ def encode_chunk(chunk, lock='aes256ctr'):
         key=key.hexdigest(),
         blob=blob,
    )
+
+
+def checkin_status(conn):
+    lista = conn._load_most_recent_checkin()
+    
+    listb = scan_trees(
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+    )
+    
+    merged = merge_sorted_name(lista, listb)
+    
+    result = tote_merge_update(
+        conn, merged,
+        relative_to=conn.workdir_path,
+        filedata=False,
+        delete=True,
+    )
+    
+    for item in result:
+        pass
+
+
+def checkin_save(conn, m):
+    yield from tote_merge_update(
+        conn=conn, merged=m,
+        relative_to=conn.workdir_path,
+        delete=True,
+    )
+
+
+def tote_merge_update(conn, merged, relative_to=None, delete=False, update=True, verbose=True, filedata=True):
+    for a, b in merged:
+
+        if b is None:
+            if delete:
+                if verbose:
+                    print('d', a.name)
+            else:
+                yield a
+            continue
+
+        if a is None:
+            if verbose:
+                print('a', b.name)
+
+            if filedata:
+                path = Path(b.name)
+                if relative_to:
+                    path = Path(relative_to) / path
+
+                if path.is_file():
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
+
+            yield b
+            continue
+
+        if a == b:
+            yield b
+            continue
+
+        if b.type == 'file':
+            changes = {
+                f for f in ('type', 'size', 'mtime') 
+                if getattr(a, f, None) != getattr(b, f, None) 
+            }
+            
+            if update:
+                if not changes:
+                    yield a
+                    continue
+
+            if verbose:
+                print('u', b.name, changes)
+
+            if filedata:
+                path = Path(b.name)
+                if relative_to:
+                    path = Path(relative_to) / path
+
+                try:
+                    with open(path, 'rb') as file:
+                        b.update(conn.put_stream(file))
+                except OSError as e:
+                    b.error = str(e)
+
+            yield b
+            continue
+
+        if verbose:
+            print('u', b.name)
+        yield b
+
+
+def tote_update(
+    # input archive file
+    arc,
+    # path names to start from
+    paths,
+    # remove path from files before comparing to tote contents
+    relative_to = None,
+    # stop looking for .toteignore at base_path
+    base_path = None,
+    # output archive file
+    arc_output = None,
+    # tote connection
+    conn = None,
+    # delete files from the archive with no input file
+    delete=False,
+    # update files, compare size and time
+    update=True,
+    # verbose output of changes
+    verbose=True,
+    # save history
+    history=True,
+    # read no file, make no output
+    dryrun=False,
+):
+    if not conn:
+        conn = connect(arc)
+    
+    if not arc:
+        items_in = []
+    else:
+        try:
+            with conn.read_file(arc, unfold=False) as f:
+                items_in = list(f)
+        except FileNotFoundError:
+            items_in = []
+    
+    items_in = conn.unfold(items_in)
+    
+    scan_in = scan_trees(
+        paths=paths,
+        base_path=base_path,
+        relative_to=relative_to,
+    )
+    
+    merged = merge_sorted_name(items_in, scan_in)
+
+    result = tote_merge_update(
+        conn, merged, 
+        relative_to=relative_to,
+        delete=delete,
+        update=update,
+        verbose=verbose,
+        filedata=not dryrun,
+    )
+
+    if dryrun:
+        for item in result:
+            pass
+        
+    else:
+        result = conn.fold(result)
+
+        if arc_output is None:
+            arc_output = Path(arc)
+        else:
+            arc_output = Path(arc_output)
+
+        arc_output_part = arc_output.with_name(arc_output.name + '.part')
+        with conn.write_file(arc_output_part) as w:
+            w.writeall(result)
+
+        if history:
+            arc_output_history = arc_output.with_name(arc_output.name + '.history')
+            if arc_output.is_file():
+                with conn.append_file(arc_output_history) as w:
+                    w.write(conn.put_file(arc))
+
+        arc_output_part.rename(target=arc_output)
+
+    

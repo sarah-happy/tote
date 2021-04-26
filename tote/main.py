@@ -152,151 +152,52 @@ def cmd_unfold(args):
 def cmd_status(args):
     conn = tote.connect()
     
-    tote.checkin_status(conn)
-
+    last_checkin = conn._most_recent_checkin()
     
+    tote.tote_update(
+        arc=last_checkin,
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+        conn=conn,
+        dryrun=True,
+    )
+
+
 def cmd_checkin(args):
     conn = tote.connect()
     
-    update = tote.checkin_save(conn)
+    arc_output = conn.tote_path / 'checkin' / 'default' / (tote.format_timestamp(safe=True) + '.tote')
+    arc_output.parent.mkdir(parents=True, exist_ok=True)
     
-    folds = conn.fold(update)
-
-    path = conn.tote_path / 'checkin' / 'default'
-    path.mkdir(parents=True, exist_ok=True)
-
-    path = path / (tote.format_timestamp(safe=True) + '.tote')
-    path_part = path.with_name(path.name + '.part')
+    last_checkin = conn._most_recent_checkin()
     
-    with conn.write_file(path_part) as f:
-        # save_new_checkin looks for the most recent checkin here
-        f.writeall(folds)
-    
-    path_part.rename(target=path)
+    tote.tote_update(
+        arc=last_checkin,
+        arc_output=arc_output,
+        paths=[conn.workdir_path], 
+        relative_to=conn.workdir_path,
+        base_path=conn.workdir_path,
+        conn=conn,
+    )
 
 
 def cmd_add(args):
-    arc = Path(args.tote)
-    paths = args.file
-
-    def do_add(m, conn):
-        for a, b in m:
-            if b is None:
-                yield a
-                continue
-
-            print('a' if a is None else 'u', b.name)
-
-            path = Path(b.name)
-            if path.is_file():
-                with open(path, 'rb') as file:
-                    b.update(conn.put_stream(file))
-
-            yield b
-
-    conn = tote.connect(arc)
-    
-    try:
-        with conn.read_file(arc, unfold=False) as f:
-            items_in = list(f)
-    except FileNotFoundError:
-        items_in = []
-    items_in = conn.unfold(items_in)
-    b = tote.scan_trees(paths)
-    m = tote.merge_sorted(items_in, b)
-
-    o = do_add(m, conn)
-
-    arc_part = arc.with_name(arc.name + '.part')
-    with conn.write_file(arc_part) as w:
-        w.writeall(conn.fold(o))
-
-    arc_history = arc.with_name(arc.name + '.history')
-    if arc.is_file():
-        with conn.append_file(arc_history) as w:
-            w.write(conn.put_file(arc))
-
-    arc_part.rename(target=arc)
+    tote.tote_update(
+        arc=args.tote,
+        paths=args.file,
+        update=False,
+    )
 
 
 def cmd_refresh(args):
-    arc = Path(args.tote)
-    paths = args.file
+    tote.tote_update(
+        arc=args.tote,
+        paths=args.file,
+        delete=True,
+    )
 
-    def do_refresh(m, conn):
-        for a, b in m:
-            
-            if b is None:
-                print('d', a.name)
-#                 yield a
-                continue
 
-            if a is None:
-                print('a', b.name)
-                path = Path(b.name)
-                if path.is_file():
-                    with open(path, 'rb') as file:
-                        b.update(conn.put_stream(file))
-
-                yield b
-                continue
-            
-            if a == b:
-                yield b
-                continue
-            
-            changes = set()
-
-            if b.type == 'file':
-                changes = {
-                    f 
-                    for f in ('type', 'size', 'mtime')
-                    if getattr(a, f, None) != getattr(b, f, None)
-                }
-                if not changes:
-                    yield a
-                    continue
-
-                path = Path(b.name)
-                try:
-                    with open(path, 'rb') as file:
-                        b.update(conn.put_stream(file))
-                except OSError as e:
-                    b.error = str(e)
-
-            if changes:
-                print('u', b.name, changes)
-
-            yield b
-
-            
-
-    conn = tote.connect(arc)
-    
-    try:
-        with conn.read_file(arc, unfold=False) as f:
-            items_in = list(f)
-    except FileNotFoundError:
-        items_in = []
-    lista = conn.unfold(items_in)
-    listb = tote.scan_trees(paths)
-    m = tote.merge_sorted(lista, listb)
-
-    o = do_refresh(m, conn)
-
-    arc_part = arc.with_name(arc.name + '.part')
-    with conn.write_file(arc_part) as w:
-        w.writeall(conn.fold(o))
-
-    arc_history = arc.with_name(arc.name + '.history')
-    if arc.is_file():
-        with conn.append_file(arc_history) as w:
-            w.write(conn.put_file(arc))
-
-    arc_part.rename(target=arc)
-    
-    
-    
 def cmd_extract(args):
     '''extract files from archive'''
     arc = args.tote
