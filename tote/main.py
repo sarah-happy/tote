@@ -164,10 +164,18 @@ def cmd_status(args):
     )
 
 
+import subprocess
+
 def cmd_checkin(args):
     conn = tote.connect()
+    timestamp = tote.format_timestamp(safe=True)
     
-    arc_output = conn.tote_path / 'checkin' / 'default' / (tote.format_timestamp(safe=True) + '.tote')
+    # pre checkin hook
+    pre_hook = conn.tote_path / "checkin-pre"
+    if pre_hook.exists():
+        subprocess.run([pre_hook, timestamp], check=True, cwd=conn.workdir_path)
+    
+    arc_output = conn.tote_path / 'checkin' / 'default' / (timestamp + '.tote')
     arc_output.parent.mkdir(parents=True, exist_ok=True)
     
     last_checkin = conn._most_recent_checkin()
@@ -180,6 +188,11 @@ def cmd_checkin(args):
         base_path=conn.workdir_path,
         conn=conn,
     )
+    
+    # post checkin hook (arc_output)
+    post_hook = conn.tote_path / "checkin-post"
+    if post_hook.exists():
+        subprocess.run([post_hook, arc_output], check=True, cwd=conn.workdir_path)
 
 
 def cmd_add(args):
