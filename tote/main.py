@@ -161,6 +161,7 @@ def cmd_status(args):
         base_path=conn.workdir_path,
         conn=conn,
         dryrun=True,
+        verbose=True,
     )
 
 
@@ -187,6 +188,7 @@ def cmd_checkin(args):
         relative_to=conn.workdir_path,
         base_path=conn.workdir_path,
         conn=conn,
+        verbose=args.verbose,
     )
     
     # post checkin hook (arc_output)
@@ -302,6 +304,7 @@ def main(argv=None):
     c.set_defaults(func=cmd_status)
 
     c = s.add_parser('checkin', help='checkin the current state')
+    c.add_argument('--verbose', action='store_true', help='verbose output')
     c.set_defaults(func=cmd_checkin)
     
     c = s.add_parser('add', help='add and updates files in list')

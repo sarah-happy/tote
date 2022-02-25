@@ -998,7 +998,7 @@ def tote_update(
     paths,
     # remove path from files before comparing to tote contents
     relative_to = None,
-    # stop looking for .toteignore at base_path
+    # stop looking up for .toteignore at base_path
     base_path = None,
     # output archive file
     arc_output = None,
@@ -1009,7 +1009,7 @@ def tote_update(
     # update files, compare size and time
     update=True,
     # verbose output of changes
-    verbose=True,
+    verbose=False,
     # save history
     history=True,
     # read no file, make no output
